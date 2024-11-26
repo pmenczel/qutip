@@ -305,6 +305,7 @@ class IntegratorScipyDop853(Integrator):
             state0.to_array().ravel().view(np.float64),
             t
         )
+        print(self._ode_solver._y)
         print(self._ode_solver.y)
         print(' --- --- ')
 
@@ -447,7 +448,11 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         if t > self._front and t_ode >= self._front:
             # The state is at self._front, do a step
             self._back = self.get_state()
+            print(' --- THERE --- ')
+            print(self._ode_solver._y)
+            print(self._ode_solver.y)
             self._ode_solver.integrate(min(self._front + safe_delta, t))
+            print(' --- --- ')
             self._front = self._ode_solver._integrator.rwork[12]
             # We asked for a fraction of a step, now complete it.
             self._ode_solver.integrate(min(self._front, t))
