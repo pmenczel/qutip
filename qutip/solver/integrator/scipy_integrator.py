@@ -449,7 +449,7 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         if t > self._front and t_ode >= self._front:
             # The state is at self._front, do a step
             self._back = self.get_state()
-            print(' --- THERE --- ')
+            print(' --- THERE --- ', t)
             print(self._ode_solver._y)
             print(self._ode_solver.y)
             self._ode_solver.integrate(min(self._front + safe_delta, t))

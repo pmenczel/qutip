@@ -523,6 +523,7 @@ def test_MCSolver_stepping():
     assert qutip.expect(qutip.qeye(size), state) == pytest.approx(1)
     assert qutip.expect(qutip.num(size), state) == pytest.approx(size - 1)
     assert state.isket
+    print('c', solver._integrator._integrator._ode_solver._y)
     state = solver.step(5, args={'coupling': 5})
     assert qutip.expect(qutip.qeye(size), state) == pytest.approx(1)
     assert qutip.expect(qutip.num(size), state) <= size - 1
