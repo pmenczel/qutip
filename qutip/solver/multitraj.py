@@ -138,9 +138,7 @@ class MultiTrajSolver(Solver):
         """
         if not self._integrator._is_set:
             raise RuntimeError("The `start` method must called first.")
-        print('before args change: ', self._integrator._integrator._ode_solver._y)
         self._argument(args)
-        print('after args change: ', self._integrator._integrator._ode_solver._y)
         _, state = self._integrator.integrate(t, copy=False)
         return self._restore_state(state, copy=copy)
 

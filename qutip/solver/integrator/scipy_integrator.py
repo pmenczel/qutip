@@ -298,15 +298,10 @@ class IntegratorScipyDop853(Integrator):
         self._size = state0.shape[0]
         if self._mat_state:
             state0 = _data.column_stack(state0)
-        print(' --- HERE --- ')
-        print(state0)
-        print(state0.to_array().ravel().view(np.float64))
         self._ode_solver.set_initial_value(
             state0.to_array().ravel().view(np.float64),
             t
         )
-        print(self._ode_solver._y)
-        print(' --- --- ')
 
     def _check_failed_integration(self):
         if self._ode_solver.successful():
@@ -413,6 +408,7 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         # a range in which the state at any time can be computed with
         # minimal work. We keep track of the range with _back[0] and _front.
         self._check_handle()
+        print("mcstep: t=", t)
         if self._ode_solver.t == t:
             # Exact same `t` as the last call, nothing to do.
             pass
@@ -444,20 +440,29 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         # `rhs` can cause exceptions to this, but _backstep catch those cases.
         safe_delta = self._ode_solver._integrator.rwork[11]/100 + 1e-15
         t_ode = self._ode_solver.t
+        if t_ode > 0.16:
+            print('one_step: t=', t ,', t_ode=', t_ode)
 
         if t > self._front and t_ode >= self._front:
             # The state is at self._front, do a step
             self._back = self.get_state()
-            print(' --- THERE --- ', t_ode, ' ,  ', t)
-            print(self._ode_solver._y)
+            if t_ode > 0.16:
+                print(' - case 1: ', np.isnan(self._ode_solver._y).any())
             self._ode_solver.integrate(min(self._front + safe_delta, t))
-            print(' --- --- ')
+            if t_ode > 0.16:
+                print(' - after integrate (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
             self._front = self._ode_solver._integrator.rwork[12]
             # We asked for a fraction of a step, now complete it.
             self._ode_solver.integrate(min(self._front, t))
+            if t_ode > 0.16:
+                print(' - after integrate 2 (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
         elif t > self._front:
             # The state is at a time before t_front, advance to t_front
+            if t_ode > 0.16:
+                print(' - case 2: ', np.isnan(self._ode_solver._y).any())
             self._ode_solver.integrate(self._front)
+            if t_ode > 0.16:
+                print(' - after integrate (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
 
     def _backstep(self, t):
         """
