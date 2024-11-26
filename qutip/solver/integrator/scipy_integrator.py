@@ -301,11 +301,12 @@ class IntegratorScipyDop853(Integrator):
         print(' --- HERE --- ')
         print(state0)
         print(state0.to_array().ravel().view(np.float64))
-        print(' --- --- ')
         self._ode_solver.set_initial_value(
             state0.to_array().ravel().view(np.float64),
             t
         )
+        print(self._ode_solver.y)
+        print(' --- --- ')
 
     def _check_failed_integration(self):
         if self._ode_solver.successful():
