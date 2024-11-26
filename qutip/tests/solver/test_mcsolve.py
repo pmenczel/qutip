@@ -516,7 +516,7 @@ def test_MCSolver_stepping():
     H = qutip.num(size)
     solver = MCSolver(H, a)
     solver.start(qutip.basis(size, size-1), 0, seed=0)
-    print('a', solver.integrator._ode_solver._y)
+    print('a', solver._integrator._ode_solver._y)
     solver.options = {'method': 'lsoda'}
     print('b', solver._integrator._ode_solver._y)
     state = solver.step(1)
