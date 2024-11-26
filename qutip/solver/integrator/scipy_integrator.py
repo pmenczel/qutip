@@ -456,7 +456,7 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
             if np.isnan(self._ode_solver._y).any():
                 print(' - after integrate 2 (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
                 t_ode_new = self._ode_solver.t
-                print("ALERT: new t_ode: ", t_ode_new, " --- successful: ", self._ode_solver.successful())
+                print("ALERT: old t_ode: ", t_ode, ", new t_ode: ", t_ode_new, " --- successful: ", self._ode_solver.successful())
         elif t > self._front:
             # The state is at a time before t_front, advance to t_front
             if t_ode > 0.16:
