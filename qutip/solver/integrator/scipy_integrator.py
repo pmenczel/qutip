@@ -306,7 +306,6 @@ class IntegratorScipyDop853(Integrator):
             t
         )
         print(self._ode_solver._y)
-        print(self._ode_solver.y)
         print(' --- --- ')
 
     def _check_failed_integration(self):
@@ -449,9 +448,8 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         if t > self._front and t_ode >= self._front:
             # The state is at self._front, do a step
             self._back = self.get_state()
-            print(' --- THERE --- ', t)
+            print(' --- THERE --- ', t_ode, ' ,  ', t)
             print(self._ode_solver._y)
-            print(self._ode_solver.y)
             self._ode_solver.integrate(min(self._front + safe_delta, t))
             print(' --- --- ')
             self._front = self._ode_solver._integrator.rwork[12]
