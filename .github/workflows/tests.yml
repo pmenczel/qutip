@@ -31,7 +31,7 @@ jobs:
         case-name: [Windows - numpy fallback]
         # Version 2 not yet available on conda's default channel
         condaforge: [1]
-        numpy-build: [">=1.24,<1.25"]
+        numpy-build: [">=2.0.0"]
         numpy-requirement: [">=1.24,<1.25"]
         scipy-requirement: [">=1.9"]
         coverage-requirement: ["==6.5"]

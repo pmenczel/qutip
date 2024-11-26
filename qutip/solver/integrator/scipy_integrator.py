@@ -439,24 +439,24 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
         # `rhs` can cause exceptions to this, but _backstep catch those cases.
         safe_delta = self._ode_solver._integrator.rwork[11]/100 + 1e-15
         t_ode = self._ode_solver.t
-        if np.isnan(self._ode_solver._y).any():
+        if t_ode > 0.16:
             print('one_step: t=', t ,', t_ode=', t_ode)
 
         if t > self._front and t_ode >= self._front:
             # The state is at self._front, do a step
             self._back = self.get_state()
-            if np.isnan(self._ode_solver._y).any():
+            if t_ode > 0.16:
                 print(' - case 1: ', np.isnan(self._ode_solver._y).any())
             self._ode_solver.integrate(min(self._front + safe_delta, t))
-            if np.isnan(self._ode_solver._y).any():
+            if t_ode > 0.16:
                 print(' - after integrate (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
+                print(" - old t_ode: ", t_ode, ", new t_ode: ", self._ode_solver.t, " --- successful: ", self._ode_solver.successful())
             self._front = self._ode_solver._integrator.rwork[12]
             # We asked for a fraction of a step, now complete it.
             self._ode_solver.integrate(min(self._front, t))
-            if np.isnan(self._ode_solver._y).any():
+            if t_ode > 0.16:
                 print(' - after integrate 2 (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
-                t_ode_new = self._ode_solver.t
-                print("ALERT: old t_ode: ", t_ode, ", new t_ode: ", t_ode_new, " --- successful: ", self._ode_solver.successful())
+                print(" - old t_ode: ", t_ode, ", new t_ode: ", self._ode_solver.t, " --- successful: ", self._ode_solver.successful())
         elif t > self._front:
             # The state is at a time before t_front, advance to t_front
             if t_ode > 0.16:
