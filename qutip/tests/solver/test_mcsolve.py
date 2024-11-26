@@ -518,7 +518,7 @@ def test_MCSolver_stepping():
     solver.start(qutip.basis(size, size-1), 0, seed=0)
     print('a', solver.integrator._ode_solver._y)
     solver.options = {'method': 'lsoda'}
-    print('b', solver.integrator._ode_solver._y)
+    print('b', solver._integrator._ode_solver._y)
     state = solver.step(1)
     assert qutip.expect(qutip.qeye(size), state) == pytest.approx(1)
     assert qutip.expect(qutip.num(size), state) == pytest.approx(size - 1)

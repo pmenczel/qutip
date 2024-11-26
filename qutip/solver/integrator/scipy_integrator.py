@@ -405,6 +405,7 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
 
     def set_state(self, t, state0):
         self._front = t
+        print('lsoda set state')
         super().set_state(t, state0)
         self._back = self.get_state()
 
