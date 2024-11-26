@@ -447,11 +447,13 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
             self._back = self.get_state()
             if t_ode > 0.16:
                 print(' - case 1: ', np.isnan(self._ode_solver._y).any())
+                print(" - asking for: ", min(self._front + safe_delta, t))
             self._ode_solver.integrate(min(self._front + safe_delta, t))
+            self._front = self._ode_solver._integrator.rwork[12]
             if t_ode > 0.16:
                 print(' - after integrate (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
                 print(" - old t_ode: ", t_ode, ", new t_ode: ", self._ode_solver.t, " --- successful: ", self._ode_solver.successful())
-            self._front = self._ode_solver._integrator.rwork[12]
+                print(" - asking for: ", min(self._front, t))
             # We asked for a fraction of a step, now complete it.
             self._ode_solver.integrate(min(self._front, t))
             if t_ode > 0.16:
