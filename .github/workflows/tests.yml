@@ -24,32 +24,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: []
+        os: [windows-latest]
         # Test other versions of Python in special cases to avoid exploding the
         # matrix size; make sure to test all supported versions in some form.
-        python-version: ["3.11"]
-        case-name: [defaults]
+        python-version: ["3.10"]
+        case-name: [Windows - numpy fallback]
         # Version 2 not yet available on conda's default channel
         condaforge: [1]
-        numpy-build: [""]
-        numpy-requirement: [""]
+        numpy-build: [">=2.0.0"]
+        numpy-requirement: [">=1.24,<1.25"]
         scipy-requirement: [">=1.9"]
         coverage-requirement: ["==6.5"]
-        # Extra special cases.  In these, the new variable defined should always
-        # be a truth-y value (hence 'nomkl: 1' rather than 'mkl: 0'), because
-        # the lack of a variable is _always_ false-y, and the defaults lack all
-        # the special cases.
-        include:
-          - case-name: Windows - numpy fallback
-            os: windows-latest
-            python-version: "3.10"
-            numpy-build: ">=2.0.0"
-            numpy-requirement: ">=1.24,<1.25"
-            semidefinite: 1
-            oldcython: 1
-            nocython: 1
-            condaforge: 1
-            pytest-extra-options: "-W ignore:dep_util:DeprecationWarning -W \"ignore:The 'renderer' parameter of do_3d_projection\""
+        semidefinite: [1]
+        oldcython: [1]
+        nocython: [1]
+        pytest-extra-options: ["-W ignore:dep_util:DeprecationWarning -W \"ignore:The 'renderer' parameter of do_3d_projection\""]
 
     steps:
       - uses: actions/checkout@v4
