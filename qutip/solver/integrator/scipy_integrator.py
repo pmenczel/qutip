@@ -450,6 +450,8 @@ class IntegratorScipylsoda(IntegratorScipyDop853):
                 print(" - asking for: ", min(self._front + safe_delta, t))
             self._ode_solver.integrate(min(self._front + safe_delta, t))
             self._front = self._ode_solver._integrator.rwork[12]
+            if self._front < self._ode_solver.t:
+                self._front = self._ode_solver.t + safe_delta
             if t_ode > 0.16:
                 print(' - after integrate (', self._ode_solver.get_return_code(), '): ', np.isnan(self._ode_solver._y).any())
                 print(" - old t_ode: ", t_ode, ", new t_ode: ", self._ode_solver.t, " --- successful: ", self._ode_solver.successful())
