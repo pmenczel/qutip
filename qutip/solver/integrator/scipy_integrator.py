@@ -298,6 +298,10 @@ class IntegratorScipyDop853(Integrator):
         self._size = state0.shape[0]
         if self._mat_state:
             state0 = _data.column_stack(state0)
+        print(' --- HERE --- ')
+        print(state0)
+        print(state0.to_array().ravel().view(np.float64))
+        print(' --- --- ')
         self._ode_solver.set_initial_value(
             state0.to_array().ravel().view(np.float64),
             t

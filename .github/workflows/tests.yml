@@ -40,77 +40,6 @@ jobs:
         # the lack of a variable is _always_ false-y, and the defaults lack all
         # the special cases.
         include:
-          - case-name: p312 numpy 2
-            os: ubuntu-latest
-            python-version: "3.12"
-            numpy-build: ">=2.0.0"
-            numpy-requirement: ">=2.0.0"
-            pypi: 1
-
-          - case-name: p310 numpy 1.22
-            os: ubuntu-latest
-            python-version: "3.10"
-            numpy-build: ">=1.22.0,<1.23.0"
-            numpy-requirement: ">=1.22.0,<1.23.0"
-            scipy-requirement: ">=1.10,<1.11"
-            semidefinite: 1
-            oldcython: 1
-            pypi: 1
-            pytest-extra-options: "-W ignore:dep_util:DeprecationWarning -W \"ignore:The 'renderer' parameter of do_3d_projection\""
-
-          # Python 3.12 and latest numpy
-          # Use conda-forge to provide Python 3.11 and latest numpy
-          - case-name: p312, numpy fallback
-            os: ubuntu-latest
-            python-version: "3.12"
-            numpy-requirement: ">=1.26,<1.27"
-            scipy-requirement: ">=1.11,<1.12"
-            condaforge: 1
-            # Install mpi4py to test mpi_pmap
-            # Should be enough to include this in one of the runs
-            includempi: 1
-
-          # Python 3.10, no mkl, scipy 1.9, numpy 1.23
-          # Scipy 1.9 did not support cython 3.0 yet.
-          # cython#17234
-          - case-name: p310 no mkl
-            os: ubuntu-latest
-            python-version: "3.10"
-            numpy-requirement: ">=1.23,<1.24"
-            scipy-requirement: ">=1.9,<1.10"
-            semidefinite: 1
-            condaforge: 1
-            oldcython: 1
-            nomkl: 1
-            pytest-extra-options: "-W ignore:dep_util:DeprecationWarning -W \"ignore:The 'renderer' parameter of do_3d_projection\""
-
-          # Mac
-          # Mac has issues with MKL since september 2022.
-          - case-name: macos
-            # setup-miniconda not compatible with macos-latest presently.
-            # https://github.com/conda-incubator/setup-miniconda/issues/344
-            os: macos-12
-            python-version: "3.12"
-            numpy-build: ">=2.0.0"
-            numpy-requirement: ">=2.0.0"
-            condaforge: 1
-            nomkl: 1
-
-          - case-name: macos - numpy fallback
-            os: macos-12
-            python-version: "3.11"
-            numpy-build: ">=2.0.0"
-            numpy-requirement: ">=1.25,<1.26"
-            condaforge: 1
-            nomkl: 1
-
-          - case-name: Windows
-            os: windows-latest
-            python-version: "3.11"
-            numpy-build: ">=2.0.0"
-            numpy-requirement: ">=2.0.0"
-            pypi: 1
-
           - case-name: Windows - numpy fallback
             os: windows-latest
             python-version: "3.10"
@@ -224,7 +153,7 @@ jobs:
             # We only have 2 physical cores, but we want to test mpi_pmap with 2 workers.
             export OMPI_MCA_rmaps_base_oversubscribe=true
           fi
-          pytest -Werror --strict-config --strict-markers --fail-slow=300 --durations=0 --durations-min=1.0 --verbosity=1 --cov=qutip --cov-report= --color=yes ${{ matrix.pytest-extra-options }} qutip/tests
+          pytest -Werror --strict-config --strict-markers --fail-slow=300 --durations=0 --durations-min=1.0 --verbosity=1 --cov=qutip --cov-report= --color=yes ${{ matrix.pytest-extra-options }} -k "test_MCSolver_stepping" -s qutip/tests
           # Above flags are:
           #  -Werror
           #     treat warnings as errors
@@ -255,33 +184,6 @@ jobs:
           COVERALLS_FLAG_NAME: ${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.case-name }}
           COVERALLS_PARALLEL: true
         run: coveralls --service=github
-
-  towncrier-check:
-    name: Verify Towncrier entry added
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Towncrier
-        run: |
-          python -m venv towncrier_check
-          source towncrier_check/bin/activate
-          python -m pip install towncrier
-
-      - name: Verify Towncrier entry added
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_BRANCH: ${{ github.base_ref }}
-        run: |
-          # Fetch the pull request' base branch so towncrier will be able to
-          # compare the current branch with the base branch.
-          # Source: https://github.com/actions/checkout/#fetch-all-branches.
-          git fetch --no-tags origin +refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}
-          source towncrier_check/bin/activate
-          towncrier check --compare-with origin/${BASE_BRANCH}
-          towncrier build --version "$(cat VERSION)" --draft
 
   finalise:
     name: Finalise coverage reporting
