@@ -69,32 +69,6 @@ def test_agreement_with_mesolve_for_negative_rates(
     )
 
 
-def test_completeness_relation():
-    """
-    NonMarkovianMCSolver guarantees that the operators in solver.ops
-    satisfy the completeness relation ``sum(Li.dag() * Li) = a*I`` where a is a
-    constant and I the identity.
-    """
-    # some arbitrary H
-    H = qutip.sigmaz()
-    ground_state = qutip.basis(2, 1)
-    # test using all combinations of the following operators
-    from itertools import combinations
-    all_ops_and_rates = [
-        (qutip.sigmap(), 1),
-        (qutip.sigmam(), 1),
-        (qutip.sigmaz(), 1),
-        (1j * qutip.qeye(2), 1),
-    ]
-    # empty ops_and_rates not allowed
-    for n in range(1, len(all_ops_and_rates) + 1):
-        for ops_and_rates in combinations(all_ops_and_rates, n):
-            solver = NonMarkovianMCSolver(H, ops_and_rates)
-            op = sum((L.dag() * L) for L in solver.ops)
-            a_candidate = qutip.expect(op, ground_state)
-            assert op == a_candidate * qutip.qeye(op.dims[0])
-
-
 def test_solver_pickleable():
     """
     NonMarkovianMCSolver objects must be pickleable for multiprocessing.
@@ -125,7 +99,8 @@ def test_solver_pickleable():
             assert solver.ops[i] == loaded_solver.ops[i]
             _assert_functions_equal(lambda t: solver.rate(t, i),
                                     lambda t: loaded_solver.rate(t, i))
-        _assert_functions_equal(solver.rate_shift, loaded_solver.rate_shift)
+        _assert_functions_equal(solver.divergence_factor,
+                                loaded_solver.divergence_factor)
 
 
 def _assert_functions_equal(f1, f2):

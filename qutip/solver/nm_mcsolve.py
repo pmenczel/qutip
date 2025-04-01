@@ -16,10 +16,10 @@ from .multitrajresult import NmmcResult
 from .mcsolve import MCSolver, MCIntegrator
 from .mesolve import MESolver, mesolve
 from .solver_base import _kwargs_migration
-from .cy.nm_mcsolve import RateShiftCoefficient, SqrtRealCoefficient
+from .cy.nm_mcsolve import NMMCCoefficient, SqrtAbsCoefficient
 from ..core.coefficient import ConstantCoefficient, Coefficient
 from ..core import (
-    CoreOptions, Qobj, QobjEvo, isket, ket2dm, qeye, coefficient,
+    Qobj, QobjEvo, isket, ket2dm, coefficient, qzero_like, qeye_like
 )
 from ..typing import QobjEvoLike, EopsLike, CoefficientLike
 
@@ -141,11 +141,6 @@ def nm_mcsolve(
         - | mc_corr_eps : float
           | Small number used to detect non-physical collapse caused by
             numerical imprecision.
-        - | completeness_rtol, completeness_atol : float, float
-          | Parameters used in determining whether the given Lindblad operators
-            satisfy a certain completeness relation. If they do not, an
-            additional Lindblad operator is added automatically (with zero
-            rate).
         - | martingale_quad_limit : float or int
           | An upper bound on the number of subintervals used in the adaptive
             integration of the martingale.
@@ -206,7 +201,7 @@ def nm_mcsolve(
         )
 
     ops_and_rates = [
-        _parse_op_and_rate(op, rate, tlist=tlist, args=args or {})
+        (op, coefficient(rate, tlist=tlist, args=args or {}))
         for op, rate in ops_and_rates
     ]
 
@@ -216,19 +211,10 @@ def nm_mcsolve(
     return result
 
 
-def _parse_op_and_rate(op, rate, **kw):
-    """ Sanity check the op and convert rates to coefficients. """
-    if not isinstance(op, Qobj):
-        raise ValueError("NonMarkovianMCSolver ops must be of type Qobj")
-    rate = coefficient(rate, **kw)
-    return op, rate
-
-
 class InfluenceMartingale:
-    def __init__(self, nm_solver, a_parameter, quad_limit):
+    def __init__(self, nm_solver, quad_limit):
         self._nm_solver = nm_solver
         self._quad_limit = quad_limit
-        self._a_parameter = a_parameter
         self.reset()
 
     def reset(self):
@@ -265,8 +251,7 @@ class InfluenceMartingale:
             raise RuntimeError("The `start` method must called first.")
 
         rate = self._nm_solver.rate(collapse_time, collapse_channel)
-        shift = self._nm_solver.rate_shift(collapse_time)
-        factor = rate / (rate + shift)
+        factor = 0 if rate == 0 else rate / abs(rate)
         self._discrete_martingale.append((collapse_time, factor))
 
     def value(self, t):
@@ -297,7 +282,7 @@ class InfluenceMartingale:
             return 1
 
         integral, _, *info = scipy.integrate.quad(
-            self._nm_solver.rate_shift, t1, t2,
+            self._nm_solver.divergence_factor, t1, t2,
             limit=self._quad_limit,
             full_output=True,
         )
@@ -305,7 +290,7 @@ class InfluenceMartingale:
             raise ValueError(
                 f"Failed to integrate the continuous martingale: {info[1]}"
             )
-        return np.exp(self._a_parameter * integral)
+        return np.exp(integral)
 
 
 class NmMCIntegrator(MCIntegrator):
@@ -371,15 +356,13 @@ class NonMarkovianMCSolver(MCSolver):
         "norm_t_tol": 1e-6,
         "norm_tol": 1e-4,
         "improved_sampling": False,
-        "completeness_rtol": 1e-5,
-        "completeness_atol": 1e-8,
         "martingale_quad_limit": 100,
     }
 
     def __init__(
         self,
         H: Qobj | QobjEvo,
-        ops_and_rates: Sequence[tuple[Qobj, float | Coefficient]],
+        ops_and_rates: Sequence[tuple[Qobj | QobjEvo, float | Coefficient]],
         *,
         options: dict[str, Any] = None,
     ):
@@ -387,10 +370,11 @@ class NonMarkovianMCSolver(MCSolver):
 
         self.ops = []
         self._rates = []
+        self._X = qzero_like(H)
 
         for op, rate in ops_and_rates:
-            if not isinstance(op, Qobj):
-                raise ValueError("ops_and_rates' ops must be Qobj")
+            if not isinstance(op, (Qobj, QobjEvo)):
+                raise ValueError("ops_and_rates' ops must be Qobj or QobjEvo")
             if isinstance(rate, numbers.Number):
                 rate = ConstantCoefficient(rate)
             if not isinstance(rate, Coefficient):
@@ -399,53 +383,35 @@ class NonMarkovianMCSolver(MCSolver):
                 )
             self.ops.append(op)
             self._rates.append(rate)
-
-        a_parameter, L = self._check_completeness(self.ops)
-        if L is not None:
-            self.ops.append(L)
-            self._rates.append(ConstantCoefficient(0))
+            self._X += NMMCCoefficient(rate) * op.dag() * op
+        self._rates.append(ConstantCoefficient(0))
 
         self._martingale = InfluenceMartingale(
-            self, a_parameter, self.options["martingale_quad_limit"]
+            self, self.options["martingale_quad_limit"]
         )
 
         # Many coefficients. These should not be publicly exposed
         # and will all need to be updated in _arguments():
-        self._rate_shift = RateShiftCoefficient(self._rates)
-        self._sqrt_shifted_rates = [
-            SqrtRealCoefficient(rate + self._rate_shift)
-            for rate in self._rates
+        self._sqrt_abs_rates = [
+            SqrtAbsCoefficient(rate) for rate in self._rates
         ]
 
         c_ops = [
-            QobjEvo([op, sqrt_shifted_rate])
-            for op, sqrt_shifted_rate
-            in zip(self.ops, self._sqrt_shifted_rates)
+            QobjEvo([op, sqrt_abs_rate])
+            for op, sqrt_abs_rate in zip(self.ops, self._sqrt_abs_rates)
         ]
+
+        c_ops.append(self._L0)
         super().__init__(H, c_ops, options=options)
 
     def _mc_integrator_class(self, *args):
         return NmMCIntegrator(*args, __martingale=self._martingale)
 
-    def _check_completeness(self, ops):
-        """
-        Checks whether ``sum(Li.dag() * Li)`` is proportional to the identity
-        operator. If not, creates an extra Lindblad operator so that it is.
+    def divergence_factor(self, t):
+        return max(self._X(t).eigenenergies())
 
-        Returns the proportionality factor a, and the extra Lindblad operator
-        (or None if no extra Lindblad operator is necessary).
-        """
-        op = sum((L.dag() * L) for L in ops)
-
-        a_candidate = op.tr() / op.shape[0]
-        with CoreOptions(rtol=self.options["completeness_rtol"],
-                         atol=self.options["completeness_atol"]):
-            if op == a_candidate * qeye(op.dims[0]):
-                return np.real(a_candidate), None
-
-        a = max(op.eigenenergies())
-        L = (a * qeye(op.dims[0]) - op).sqrtm()  # new Lindblad operator
-        return a, L
+    def _L0(self, t):
+        return (qeye_like(self._X) * self.divergence_factor(t) - self._X(t)).sqrtm()
 
     def current_martingale(self):
         """
@@ -459,34 +425,16 @@ class NonMarkovianMCSolver(MCSolver):
 
     def _argument(self, args):
         self._rates = [rate.replace_arguments(args) for rate in self._rates]
-        self._rate_shift = self._rate_shift.replace_arguments(args)
-        self._sqrt_shifted_rates = [
-            rate.replace_arguments(args) for rate in self._sqrt_shifted_rates
+        self._sqrt_abs_rates = [
+            rate.replace_arguments(args) for rate in self._sqrt_abs_rates
         ]
+        self._X .arguments(args)
         super()._argument(args)
 
     def add_feedback(self, key, type):
         raise NotImplementedError(
             "NM mcsolve does not support feedback currently."
         )
-
-    def rate_shift(self, t):
-        """
-        Return the rate shift at time ``t``.
-
-        The rate shift is ``2 * abs(min([0, rate_1(t), rate_2(t), ...]))``.
-
-        Parameters
-        ----------
-        t : float
-            The time at which to calculate the rate shift.
-
-        Returns
-        -------
-        rate_shift : float
-            The rate shift amount.
-        """
-        return self._rate_shift.as_double(t)
 
     def rate(self, t, i):
         """
@@ -522,7 +470,7 @@ class NonMarkovianMCSolver(MCSolver):
         rate : float
             The square root of the shifted value of rate ``i`` at time ``t``.
         """
-        return np.real(self._sqrt_shifted_rates[i](t))
+        return np.real(self._sqrt_abs_rates[i](t))
 
     # MCSolver (and NonMarkovianMCSolver) offer two interfaces, i.e., two ways
     # of interacting with them: either call `start` first and then manually
@@ -656,16 +604,6 @@ class NonMarkovianMCSolver(MCSolver):
         improved_sampling: Bool, default: False
             Whether to use the improved sampling algorithm
             of Abdelhafez et al. PRA (2019)
-
-        completeness_rtol: float, default: 1e-5
-            Used in determining whether the given Lindblad operators satisfy
-            a certain completeness relation. If they do not, an additional
-            Lindblad operator is added automatically (with zero rate).
-
-        completeness_atol: float, default: 1e-8
-            Used in determining whether the given Lindblad operators satisfy
-            a certain completeness relation. If they do not, an additional
-            Lindblad operator is added automatically (with zero rate).
 
         martingale_quad_limit: float or int, default: 100
             An upper bound on the number of subintervals used in the adaptive

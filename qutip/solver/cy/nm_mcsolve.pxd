@@ -2,13 +2,11 @@
 from qutip.core.cy.coefficient cimport Coefficient
 
 
-cdef class RateShiftCoefficient(Coefficient):
+cdef class SqrtAbsCoefficient(Coefficient):
     cdef:
-        Coefficient [:] coeffs
-
-    cpdef double as_double(self, double t) except *
+        Coefficient base
 
 
-cdef class SqrtRealCoefficient(Coefficient):
+cdef class NMMCCoefficient(Coefficient):
     cdef:
         Coefficient base

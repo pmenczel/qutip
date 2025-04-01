@@ -10,25 +10,13 @@ cdef extern from "<math.h>" namespace "std" nogil:
     double sqrt(double x)
 
 cdef extern from "<complex>" namespace "std" nogil:
-    double real(double complex x)
+    double abs(double complex x)
 
 
-cdef class RateShiftCoefficient(Coefficient):
-    """
-    A coefficient representing the rate shift of a list of coefficients.
-
-    The rate shift is ``2 * abs(min([0, coeff_1(t), coeff_2(t), ...]))``.
-
-    Parameters
-    ----------
-    coeffs : list of :obj:`.Coefficient`
-        The list of coefficients to determine the rate shift of.
-    """
-    def __init__(self, list coeffs):
-        self.coeffs = np.array(coeffs, dtype=Coefficient)
-
-    def __reduce__(self):
-        return (RateShiftCoefficient, (list(self.coeffs),))
+@cython.auto_pickle(True)
+cdef class NMMCCoefficient(Coefficient):
+    def __init__(self, Coefficient base):
+        self.base = base
 
     def replace_arguments(self, _args=None, **kwargs):
         """
@@ -48,39 +36,25 @@ cdef class RateShiftCoefficient(Coefficient):
         **kwargs
             Arguments to replace.
         """
-        return RateShiftCoefficient(
-            [coeff.replace_arguments(_args, **kwargs) for coeff in self.coeffs],
+        return NMMCCoefficient(
+            self.base.replace_arguments(_args, **kwargs)
         )
 
     cdef complex _call(self, double t) except *:
-        """ Return the rate shift. """
-        cdef int N = len(self.coeffs)
-        cdef int i
-        cdef double min_rate = 0
-        cdef Coefficient coeff
-
-        for i in range(N):
-            coeff = self.coeffs[i]
-            min_rate = min(min_rate, real(coeff._call(t)))
-
-        return 2 * abs(min_rate)
-
-    cpdef double as_double(self, double t) except *:
-        """ Return the rate shift as a float. """
-        return real(self._call(t))
+        """Return the shifted rate."""
+        cdef double complex val = self.base._call(t)
+        return abs(val) - val
 
     cpdef Coefficient copy(self):
         """Return a copy of the :obj:`.Coefficient`."""
-        return RateShiftCoefficient(
-            [coeff.copy() for coeff in self.coeffs],
-        )
+        return NMMCCoefficient(self.base.copy())
 
 
 @cython.auto_pickle(True)
-cdef class SqrtRealCoefficient(Coefficient):
+cdef class SqrtAbsCoefficient(Coefficient):
     """
-    A coefficient representing the positive square root of the real part of
-    another coefficient.
+    A coefficient representing the positive square root of the absolute value
+    of another coefficient.
     """
     def __init__(self, Coefficient base):
         self.base = base
@@ -103,14 +77,14 @@ cdef class SqrtRealCoefficient(Coefficient):
         **kwargs
             Arguments to replace.
         """
-        return SqrtRealCoefficient(
+        return SqrtAbsCoefficient(
             self.base.replace_arguments(_args, **kwargs)
         )
 
     cdef complex _call(self, double t) except *:
         """Return the shifted rate."""
-        return sqrt(real(self.base._call(t)))
+        return sqrt(abs(self.base._call(t)))
 
     cpdef Coefficient copy(self):
         """Return a copy of the :obj:`.Coefficient`."""
-        return SqrtRealCoefficient(self.base.copy())
+        return SqrtAbsCoefficient(self.base.copy())
