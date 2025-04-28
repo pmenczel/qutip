@@ -428,7 +428,7 @@ class NonMarkovianMCSolver(MCSolver):
         self._sqrt_abs_rates = [
             rate.replace_arguments(args) for rate in self._sqrt_abs_rates
         ]
-        self._X .arguments(args)
+        self._X.arguments(args)
         super()._argument(args)
 
     def add_feedback(self, key, type):
