@@ -19,14 +19,12 @@ from scipy.sparse.linalg import spsolve
 from qutip.settings import settings
 from qutip import state_number_enumerate, CoreOptions
 from qutip.core import data as _data
-from qutip.core import Qobj, QobjEvo, component, sparse_direct_sum
-from qutip.core.dimensions import Dimensions, Field, SumSpace
+from qutip.core.data import csr as _csr
 from qutip.core.environment import (
     BosonicEnvironment, FermionicEnvironment,
     ExponentialBosonicEnvironment, ExponentialFermionicEnvironment)
-from qutip.core.operators import qeye_like
-from qutip.core.superoperator import (
-    liouvillian, spre, spost, vector_to_operator, operator_to_vector)
+from qutip.core import Qobj, QobjEvo
+from qutip.core.superoperator import liouvillian, spre, spost
 from .bofin_baths import (
     Bath, BathExponent, BosonicBath, DrudeLorentzBath, FermionicBath,
 )
@@ -337,9 +335,8 @@ class HierarchyADOsState:
         hierarchy).
     ados : :class:`HierarchyADOs`
         The description of the hierarchy.
-    ado_state : :class:`.Qobj`
-        The full state of the hierarchy
-        (as a direct sum of the operator-kets representing the state and ADOs)
+    ado_state : numpy.array
+        The full state of the hierarchy.
 
     Attributes
     ----------
@@ -358,18 +355,6 @@ class HierarchyADOsState:
     """
 
     def __init__(self, rho, ados, ado_state):
-        if not isinstance(ado_state, Qobj) and hasattr(ado_state, "shape"):
-            n = rho._dims[0].size
-            n_ados = len(ados.labels)
-            sup_space = SumSpace(
-                *([operator_to_vector(rho)._dims[0]] * n_ados)
-            )
-
-            ado_state = ado_state.reshape(n ** 2 * n_ados)
-            ado_state = Qobj(
-                ado_state, dims=Dimensions(SumSpace(Field()), sup_space)
-            )
-
         self.rho = rho
         self._ado_state = ado_state
         self._ados = ados
@@ -398,9 +383,7 @@ class HierarchyADOsState:
             idx = idx_or_label
         else:
             idx = self._ados.idx(idx_or_label)
-        return vector_to_operator(
-            component(self._ado_state, idx, 0)
-        )
+        return Qobj(self._ado_state[idx, :].T, dims=self.rho.dims)
 
 
 class HEOMResult(Result):
@@ -535,12 +518,10 @@ def heomsolve(
             if not installed. Empty string or False will disable the bar.
         - | progress_kwargs : dict
           | kwargs to pass to the progress_bar. Qutip's bars use `chunk_size`.
-        - | rhs_data_type: str {'dense', 'CSR', 'Dia', }
-          | Name of the data type used to store the HEOM generator.
         - | state_data_type: str {'dense', 'CSR', 'Dia', }
           | Name of the data type of the state used during the ODE evolution.
-            Use an empty string to keep the input state type. Many integrators
-            only support `Dense`.
+            Use an empty string to keep the input state type. Many integrator
+            can only work with `Dense`.
         - | method : str ["adams", "bdf", "lsoda", "dop853", "vern9", etc.]
           | Which differential equation integration method to use.
         - | atol, rtol : float
@@ -658,7 +639,6 @@ class HEOMSolver(Solver):
         "method": "adams",
         "store_ados": False,
         "state_data_type": "dense",
-        "rhs_data_type": None,
     }
 
     def __init__(self, H, bath, max_depth, *, odd_parity=False, options=None):
@@ -669,14 +649,14 @@ class HEOMSolver(Solver):
             raise TypeError("The Hamiltonian (H) must be a Qobj or QobjEvo")
 
         H = QobjEvo(H)
-        if H.isconstant:
-            H = H(0)
         self.L_sys = (
             liouvillian(H) if H.type == "oper"  # hamiltonian
             else H  # already a liouvillian
         )
-        if isinstance(self.L_sys, QobjEvo):
-            self.L_sys.compress()
+
+        self._sys_shape = int(np.sqrt(self.L_sys.shape[0]))
+        self._sup_shape = self.L_sys.shape[0]
+        self._sys_dims = self.L_sys.dims[0]
 
         self.ados = HierarchyADOs(
             self._combine_bath_exponents(bath), max_depth,
@@ -684,47 +664,34 @@ class HEOMSolver(Solver):
         self._n_ados = len(self.ados.labels)
         self._n_exponents = len(self.ados.exponents)
 
-        # Dimensions that L_sys acts on
-        self._sys_dims = self.L_sys._dims[0].oper
-        # Underlying Hilbert space dimension
-        self._sys_shape = self._sys_dims[0].size
-
-        sup_space = SumSpace(*([self.L_sys._dims[0]] * self._n_ados))
-        self._rhs_dims = Dimensions(sup_space, sup_space)
-        self._ado_dims = Dimensions(SumSpace(Field()), sup_space)
-
         self._init_ados_time = time() - _time_start
         _time_start = time()
 
-        rhs_dtype = _data._parse_default_dtype(
-            None if options is None else options.get("rhs_data_type", None),
-            "sparse"
-        )
-        with CoreOptions(default_dtype=rhs_dtype):
+        with CoreOptions(default_dtype="csr"):
             # pre-calculate identity matrix required by _grad_n
-            self._sId = qeye_like(self.L_sys)
+            self._sId = _data.identity(self._sup_shape, dtype="csr")
 
             # pre-calculate superoperators required by _grad_prev and
             # _grad_next:
-            Qs = [exp.Q.to(rhs_dtype) for exp in self.ados.exponents]
-            self._spreQ = [spre(op) for op in Qs]
-            self._spostQ = [spost(op) for op in Qs]
+            Qs = [exp.Q.to("csr") for exp in self.ados.exponents]
+            self._spreQ = [spre(op).data for op in Qs]
+            self._spostQ = [spost(op).data for op in Qs]
             self._s_pre_minus_post_Q = [
-                self._spreQ[k] - self._spostQ[k]
+                _data.sub(self._spreQ[k], self._spostQ[k])
                 for k in range(self._n_exponents)
             ]
             self._s_pre_plus_post_Q = [
-                self._spreQ[k] + self._spostQ[k]
+                _data.add(self._spreQ[k], self._spostQ[k])
                 for k in range(self._n_exponents)
             ]
-            self._spreQdag = [spre(op.dag()) for op in Qs]
-            self._spostQdag = [spost(op.dag()) for op in Qs]
+            self._spreQdag = [spre(op.dag()).data for op in Qs]
+            self._spostQdag = [spost(op.dag()).data for op in Qs]
             self._s_pre_minus_post_Qdag = [
-                self._spreQdag[k] - self._spostQdag[k]
+                _data.sub(self._spreQdag[k], self._spostQdag[k])
                 for k in range(self._n_exponents)
             ]
             self._s_pre_plus_post_Qdag = [
-                self._spreQdag[k] + self._spostQdag[k]
+                _data.add(self._spreQdag[k], self._spostQdag[k])
                 for k in range(self._n_exponents)
             ]
 
@@ -745,7 +712,7 @@ class HEOMSolver(Solver):
         ``qutip.basis(sovler.dims)`` will create a state with proper dimensions
         for this solver.
         """
-        return self._sys_dims.as_list()
+        return self._sys_dims
 
     def _initialize_stats(self):
         stats = super()._initialize_stats()
@@ -819,43 +786,43 @@ class HEOMSolver(Solver):
         """ Get the gradient for the hierarchy ADO at level n. """
         vk = self.ados.vk
         vk_sum = sum(he_n[i] * vk[i] for i in range(len(vk)))
-        return -vk_sum * self._sId
+        op = _data.mul(self._sId, -vk_sum)
+        return op
 
     def _grad_prev(self, he_n, k):
         """ Get the previous gradient. """
         if self.ados.exponents[k].fermionic:
-            op = self._grad_prev_fermionic(he_n, k)
+            return self._grad_prev_fermionic(he_n, k)
         else:
-            op = self._grad_prev_bosonic(he_n, k)
-        if isinstance(op, QobjEvo):
-            op.compress()
-        return op
+            return self._grad_prev_bosonic(he_n, k)
 
     def _grad_prev_bosonic(self, he_n, k):
         if self.ados.exponents[k].type == BathExponent.types.R:
-            return (
-                -1j * he_n[k] * self.ados.ck[k]
-                * self._s_pre_minus_post_Q[k]
+            op = _data.mul(
+                self._s_pre_minus_post_Q[k],
+                -1j * he_n[k] * self.ados.ck[k],
             )
-        if self.ados.exponents[k].type == BathExponent.types.I:
-            return (
-                 he_n[k] * self.ados.ck[k]
-                 * self._s_pre_plus_post_Q[k]
+        elif self.ados.exponents[k].type == BathExponent.types.I:
+            op = _data.mul(
+                self._s_pre_plus_post_Q[k],
+                -1j * he_n[k] * 1j * self.ados.ck[k],
             )
-        if self.ados.exponents[k].type == BathExponent.types.RI:
-            term1 = (
-                -1j * he_n[k] * self.ados.ck[k]
-                * self._s_pre_minus_post_Q[k]
+        elif self.ados.exponents[k].type == BathExponent.types.RI:
+            term1 = _data.mul(
+                self._s_pre_minus_post_Q[k],
+                he_n[k] * -1j * self.ados.ck[k],
             )
-            term2 = (
-                he_n[k] * self.ados.ck2[k]
-                * self._s_pre_plus_post_Q[k]
+            term2 = _data.mul(
+                self._s_pre_plus_post_Q[k],
+                he_n[k] * self.ados.ck2[k],
             )
-            return term1 + term2
-        raise ValueError(
-            f"Unsupported type {self.ados.exponents[k].type}"
-            f" for exponent {k}"
-        )
+            op = _data.add(term1, term2)
+        else:
+            raise ValueError(
+                f"Unsupported type {self.ados.exponents[k].type}"
+                f" for exponent {k}"
+            )
+        return op
 
     def _grad_prev_fermionic(self, he_n, k):
         ck = self.ados.ck
@@ -873,36 +840,38 @@ class HEOMSolver(Solver):
         sigma_bar_k = k + self.ados.sigma_bar_k_offset[k]
 
         if self.ados.exponents[k].type == BathExponent.types["+"]:
-            term1 = -1j * sign2 * ck[k] * self._spreQdag[k]
-            term2 = (
-                -1j * sign2 * sign1 * np.conj(ck[sigma_bar_k])
-                * self._spostQdag[k]
+            op = _data.sub(
+                _data.mul(self._spreQdag[k], -1j * sign2 * ck[k]),
+                _data.mul(
+                    self._spostQdag[k],
+                    -1j * sign2 * sign1 * np.conj(ck[sigma_bar_k]),
+                ),
             )
-            return term1 - term2
         elif self.ados.exponents[k].type == BathExponent.types["-"]:
-            term1 = -1j * sign2 * ck[k] * self._spreQ[k]
-            term2 = (
-                -1j * sign2 * sign1 * np.conj(ck[sigma_bar_k])
-                * self._spostQ[k]
+            op = _data.sub(
+                _data.mul(self._spreQ[k], -1j * sign2 * ck[k]),
+                _data.mul(
+                    self._spostQ[k],
+                    -1j * sign2 * sign1 * np.conj(ck[sigma_bar_k]),
+                ),
             )
-            return term1 - term2
-        raise ValueError(
-            f"Unsupported type {self.ados.exponents[k].type}"
-            f" for exponent {k}"
-        )
+        else:
+            raise ValueError(
+                f"Unsupported type {self.ados.exponents[k].type}"
+                f" for exponent {k}"
+            )
+        return op
 
     def _grad_next(self, he_n, k):
         """ Get the previous gradient. """
         if self.ados.exponents[k].fermionic:
-            op = self._grad_next_fermionic(he_n, k)
+            return self._grad_next_fermionic(he_n, k)
         else:
-            op = self._grad_next_bosonic(he_n, k)
-        if isinstance(op, QobjEvo):
-            op.compress()
-        return op
+            return self._grad_next_bosonic(he_n, k)
 
     def _grad_next_bosonic(self, he_n, k):
-        return -1j * self._s_pre_minus_post_Q[k]
+        op = _data.mul(self._s_pre_minus_post_Q[k], -1j)
+        return op
 
     def _grad_next_fermionic(self, he_n, k):
         he_fermionic_n = [
@@ -917,33 +886,84 @@ class HEOMSolver(Solver):
 
         if self.ados.exponents[k].type == BathExponent.types["+"]:
             if sign1 == -1:
-                return -1j * sign2 * self._s_pre_minus_post_Q[k]
-            return -1j * sign2 * self._s_pre_plus_post_Q[k]
+                op = _data.mul(self._s_pre_minus_post_Q[k], -1j * sign2)
+            else:
+                op = _data.mul(self._s_pre_plus_post_Q[k], -1j * sign2)
         elif self.ados.exponents[k].type == BathExponent.types["-"]:
             if sign1 == -1:
-                return -1j * sign2 * self._s_pre_minus_post_Qdag[k]
-            return -1j * sign2 * self._s_pre_plus_post_Qdag[k]
-        raise ValueError(
-            f"Unsupported type {self.ados.exponents[k].type}"
-            f" for exponent {k}"
+                op = _data.mul(self._s_pre_minus_post_Qdag[k], -1j * sign2)
+            else:
+                op = _data.mul(self._s_pre_plus_post_Qdag[k], -1j * sign2)
+        else:
+            raise ValueError(
+                f"Unsupported type {self.ados.exponents[k].type}"
+                f" for exponent {k}"
+            )
+        return op
+
+    def _rhs(self):
+        """ Make the RHS for the HEOM. """
+        ops = _GatherHEOMRHS(
+            self.ados.idx, block=self._sup_shape, nhe=self._n_ados
         )
 
-    def _calculate_rhs(self):
-        """ Make the full RHS required by the solver. """
-        idx = self.ados.idx
-
-        ops = {}
         for he_n in self.ados.labels:
-            ops[(idx(he_n), idx(he_n))] = self._grad_n(he_n) + self.L_sys
+            op = self._grad_n(he_n)
+            ops.add_op(he_n, he_n, op)
             for k in range(len(self.ados.dims)):
                 next_he = self.ados.next(he_n, k)
                 if next_he is not None:
-                    ops[(idx(he_n), idx(next_he))] = self._grad_next(he_n, k)
+                    op = self._grad_next(he_n, k)
+                    ops.add_op(he_n, next_he, op)
                 prev_he = self.ados.prev(he_n, k)
                 if prev_he is not None:
-                    ops[(idx(he_n), idx(prev_he))] = self._grad_prev(he_n, k)
+                    op = self._grad_prev(he_n, k)
+                    ops.add_op(he_n, prev_he, op)
 
-        return sparse_direct_sum(ops, self._rhs_dims)
+        return ops.gather()
+
+    def _calculate_rhs(self):
+        """ Make the full RHS required by the solver. """
+        rhs_mat = self._rhs()
+        rhs_dims = [
+            [self._sup_shape * self._n_ados], [self._sup_shape * self._n_ados]
+        ]
+        h_identity = _data.identity(self._n_ados, dtype="csr")
+
+        if self.L_sys.isconstant:
+            # For the constant case, we just add the Liouvillian to the
+            # diagonal blocks of the RHS matrix.
+            rhs_mat += _data.kron(h_identity, self.L_sys(0).to("csr").data)
+            rhs = QobjEvo(Qobj(rhs_mat, dims=rhs_dims))
+        else:
+            # In the time dependent case, we construct the parameters
+            # for the ODE gradient function under the assumption that
+            #
+            # RHSmat(t) = RHSmat + time dependent terms that only affect the
+            # diagonal blocks of the RHS matrix.
+            #
+            # This assumption holds because only _grad_n dependents on
+            # the system Liouvillian (and not _grad_prev or _grad_next) and
+            # the bath coupling operators are not time-dependent.
+            rhs = QobjEvo(Qobj(rhs_mat, dims=rhs_dims))
+
+            def _kron(x):
+                return Qobj(
+                    _data.kron(h_identity, x.data),
+                    dims=rhs_dims,
+                ).to("csr")
+
+            rhs += self.L_sys.linear_map(_kron)
+
+        # The assertion that rhs_mat has data type CSR is just a sanity
+        # check on the RHS creation. The base solver class will still
+        # convert the RHS to the type required by the ODE integrator if
+        # needed.
+        assert isinstance(rhs_mat, _csr.CSR)
+        assert isinstance(rhs, QobjEvo)
+        assert rhs.dims == rhs_dims
+
+        return rhs
 
     def steady_state(
         self,
@@ -983,22 +1003,17 @@ class HEOMSolver(Solver):
             extracted from the full state by calling
             :meth:`extract`.
         """
-        if isinstance(self.rhs, QobjEvo):
-            if not self.rhs.isconstant:
-                raise ValueError(
-                    "A steady state cannot be determined for a time-dependent"
-                    " system"
-                )
-            rhs = self.rhs(0)
-        else:
-            rhs = self.rhs
-
+        if not self.L_sys.isconstant:
+            raise ValueError(
+                "A steady state cannot be determined for a time-dependent"
+                " system"
+            )
         n = self._sys_shape
 
         b_mat = np.zeros(n ** 2 * self._n_ados, dtype=complex)
         b_mat[0] = 1.0
 
-        L = rhs.to("CSR", copy=True).data.as_scipy()
+        L = self.rhs(0).to("CSR").data.copy().as_scipy()
         L = L.tolil()
         L[0, 0: n ** 2 * self._n_ados] = 0.0
         L = L.tocsr()
@@ -1026,7 +1041,7 @@ class HEOMSolver(Solver):
         data = _data.mul(_data.add(data, data.adjoint()), 0.5)
         steady_state = Qobj(data, dims=self._sys_dims)
 
-        solution = Qobj(solution, dims=self._ado_dims)
+        solution = solution.reshape((self._n_ados, n, n))
         steady_ados = HierarchyADOsState(steady_state, self.ados, solution)
 
         return steady_state, steady_ados
@@ -1105,51 +1120,56 @@ class HEOMSolver(Solver):
         rho_dims = self._sys_dims
         hierarchy_shape = (self._n_ados, n, n)
 
-        if isinstance(state, HierarchyADOsState):
-            state = state._ado_state
-        if not isinstance(state, Qobj) and hasattr(state, "shape"):
-            # array-like
-            if state.shape != hierarchy_shape:
+        rho0 = state
+        ado_init = not isinstance(rho0, Qobj)
+
+        if ado_init:
+            if isinstance(rho0, HierarchyADOsState):
+                rho0_he = rho0._ado_state
+            elif hasattr(rho0, "shape"):  # array-like
+                rho0_he = rho0
+            else:
+                raise TypeError(
+                    f"Initial ADOs passed have type {type(rho0)}"
+                    " but a HierarchyADOsState or a numpy array-like instance"
+                    " was expected"
+                )
+            if rho0_he.shape != hierarchy_shape:
                 raise ValueError(
-                    f"Initial ADOs passed have shape {state.shape}"
+                    f"Initial ADOs passed have shape {rho0_he.shape}"
                     f" but the solver hierarchy shape is {hierarchy_shape}"
                 )
-            state = state.reshape(n ** 2 * self._n_ados)
-            state = Qobj(state, dims=self._ado_dims)
-
-        if not isinstance(state, Qobj):
-            raise TypeError(
-                f"Initial state or ADOs passed have type {type(state)}"
-                " but a Qobj, HierarchyADOsState or a numpy array-like"
-                " instance was expected"
-            )
-
-        if state._dims == rho_dims:
-            # ADOs not provided
-            rho0_he = sparse_direct_sum(
-                {(0, 0): operator_to_vector(state)},
-                self._ado_dims,
-                dtype=state.dtype
-            )
-        elif state._dims == self._ado_dims:
-            # ADOs provided
-            rho0_he = state
+            rho0_he = rho0_he.reshape(n ** 2 * self._n_ados)
+            rho0_he = _data.create(rho0_he)
         else:
-            raise ValueError(
-                f"Provided initial state has dims {state.dims}"
-                f" but the system dims are {rho_dims}"
-            )
+            if rho0.dims != rho_dims:
+                raise ValueError(
+                    f"Initial state rho has dims {rho0.dims}"
+                    f" but the system dims are {rho_dims}"
+                )
+            rho0_he = np.zeros([n ** 2 * self._n_ados], dtype=complex)
+            rho0_he[:n ** 2] = rho0.full().ravel('F')
+            rho0_he = _data.create(rho0_he)
 
         if self.options["state_data_type"]:
-            rho0_he = rho0_he.to(self.options["state_data_type"], copy=False)
-        return rho0_he.data
+            rho0_he = _data.to(self.options["state_data_type"], rho0_he)
+
+        return rho0_he
 
     def _restore_state(self, state, *, copy=True):
-        ado_state = Qobj(state, self._ado_dims, copy=copy)
-        rho = vector_to_operator(component(ado_state, 0, 0))
-        return HierarchyADOsState(
-            rho, self.ados, ado_state
+        n = self._sys_shape
+        rho_shape = (n, n)
+        rho_dims = self._sys_dims
+        hierarchy_shape = (self._n_ados, n, n)
+
+        rho = Qobj(
+            state.to_array()[:n ** 2].reshape(rho_shape, order='F'),
+            dims=rho_dims,
         )
+        ado_state = HierarchyADOsState(
+            rho, self.ados, state.to_array().reshape(hierarchy_shape)
+        )
+        return ado_state
 
     def start(self, state0, t0):
         """
@@ -1200,11 +1220,7 @@ class HEOMSolver(Solver):
         state_data_type: str, default: "dense"
             Name of the data type of the state used during the ODE evolution.
             Use an empty string to keep the input state type. Many integrators
-            only support `Dense`.
-
-        rhs_data_type: str, default: None
-            Name of the data type used to store the HEOM generator. If `None`,
-            the default sparse data type will be used.
+            support only work with `Dense`.
 
         store_ados : bool, default: False
             Whether or not to store the HEOM ADOs. Only relevant when using
@@ -1327,3 +1343,60 @@ class HSolverDL(HEOMSolver):
         self.temperature = temperature
         self.N_exp = N_exp
         self.bnd_cut_approx = bnd_cut_approx
+
+
+class _GatherHEOMRHS:
+    """ A class for collecting elements of the right-hand side matrix
+        of the HEOM.
+
+        Parameters
+        ----------
+        f_idx: function(he_state) -> he_idx
+            A function that returns the index of a hierarchy state
+            (i.e. an ADO label).
+        block : int
+            The size of a single ADO Liovillian operator in the hierarchy.
+        nhe : int
+            The number of ADOs in the hierarchy.
+    """
+
+    def __init__(self, f_idx, block, nhe):
+        self._block_size = block
+        self._n_blocks = nhe
+        self._f_idx = f_idx
+        self._ops = []
+
+    def add_op(self, row_he, col_he, op):
+        """ Add an block operator to the list. """
+        self._ops.append(
+            (self._f_idx(row_he), self._f_idx(col_he), op)
+        )
+
+    def gather(self):
+        """ Create the HEOM liouvillian from a sorted list of smaller sparse
+            matrices.
+
+            .. note::
+
+                The list of operators contains tuples of the form
+                ``(row_idx, col_idx, op)``. The row_idx and col_idx give the
+                *block* row and column for each op. An operator with
+                block indices ``(N, M)`` is placed at position
+                ``[N * block: (N + 1) * block, M * block: (M + 1) * block]``
+                in the output matrix.
+
+            Returns
+            -------
+            rhs : :obj:`Data`
+                A combined matrix of shape ``(block * nhe, block * ne)``.
+        """
+        self._ops.sort()
+        ops = np.array(self._ops, dtype=[
+            ("row", _data.base.idxint_dtype),
+            ("col", _data.base.idxint_dtype),
+            ("op", _data.CSR),
+        ])
+        return _csr._from_csr_blocks(
+            ops["row"], ops["col"], ops["op"],
+            self._n_blocks, self._block_size,
+        )
