@@ -257,10 +257,7 @@ cdef class FunctionCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, FunctionCoefficient) or
-            not isinstance(right, FunctionCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef FunctionCoefficient self = left
         cdef FunctionCoefficient other = right
@@ -393,10 +390,7 @@ def coeff(t, args):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, StrFunctionCoefficient) or
-            not isinstance(right, StrFunctionCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef StrFunctionCoefficient self = left
         cdef StrFunctionCoefficient other = right
@@ -660,14 +654,13 @@ cdef class InterCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, InterCoefficient) or
-            not isinstance(right, InterCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef InterCoefficient self = left
         cdef InterCoefficient other = right
         return (
+            self.np_arrays[0].shape == other.np_arrays[0].shape and
+            self.np_arrays[1].shape == other.np_arrays[1].shape and
             np.allclose(self.np_arrays[0], other.np_arrays[0]) and
             np.allclose(self.np_arrays[1], other.np_arrays[1]) and
             np.allclose(self.dt, other.dt) and
@@ -725,10 +718,7 @@ cdef class SumCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, SumCoefficient) or
-            not isinstance(right, SumCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef SumCoefficient self = left
         cdef SumCoefficient other = right
@@ -788,15 +778,11 @@ cdef class MulCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, MulCoefficient) or
-            not isinstance(right, MulCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef MulCoefficient self = left
         cdef MulCoefficient other = right
         return (
-            self is other or
             (self.first == other.first and self.second == other.second) or
             (self.second == other.first and self.first == other.second)
         )
@@ -850,14 +836,11 @@ cdef class ConjCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, ConjCoefficient) or
-            not isinstance(right, ConjCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef ConjCoefficient self = left
         cdef ConjCoefficient other = right
-        return self is other or self.base == other.base
+        return self.base == other.base
 
 
 @cython.auto_pickle(True)
@@ -906,14 +889,11 @@ cdef class NormCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, NormCoefficient) or
-            not isinstance(right, NormCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef NormCoefficient self = left
         cdef NormCoefficient other = right
-        return self is other or self.base == other.base
+        return self.base == other.base
 
 
 @cython.auto_pickle(True)
@@ -985,10 +965,7 @@ cdef class ConstantCoefficient(Coefficient):
     def __eq__(left, right):
         if left is right:
             return True
-        if (
-            not isinstance(left, ConstantCoefficient) or
-            not isinstance(right, ConstantCoefficient)
-        ):
+        if type(left) is not type(right):
             return False
         cdef ConstantCoefficient self = left
         cdef ConstantCoefficient other = right
