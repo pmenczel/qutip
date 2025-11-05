@@ -641,7 +641,8 @@ class HEOMSolver(Solver):
         "state_data_type": "dense",
     }
 
-    def __init__(self, H, bath, max_depth, *, odd_parity=False, options=None):
+    def __init__(self, H, bath, max_depth, *, odd_parity=False, options=None, method='old'):
+        self.method = method
         _time_start = time()
         # we call bool here because odd_parity will be used in arithmetic
         self.odd_parity = bool(odd_parity)
@@ -897,7 +898,7 @@ class HEOMSolver(Solver):
     def _rhs(self):
         """ Make the RHS for the HEOM. """
         ops = _GatherHEOMRHS(
-            self.ados.idx, block=self._sup_shape, nhe=self._n_ados
+            self.ados.idx, block=self._sup_shape, nhe=self._n_ados, method=self.method
         )
 
         for he_n in self.ados.labels:
@@ -913,7 +914,9 @@ class HEOMSolver(Solver):
                     op = self._grad_prev(he_n, k)
                     ops.add_op(he_n, prev_he, op)
 
-        return ops.gather()
+        time, result = ops.gather()
+        self._time = time
+        return result
 
     def _calculate_rhs(self):
         """ Make the full RHS required by the solver. """
@@ -1353,7 +1356,8 @@ class _GatherHEOMRHS:
             The number of ADOs in the hierarchy.
     """
 
-    def __init__(self, f_idx, block, nhe):
+    def __init__(self, f_idx, block, nhe, method):
+        self.method = method
         self._block_size = block
         self._n_blocks = nhe
         self._f_idx = f_idx
@@ -1384,14 +1388,44 @@ class _GatherHEOMRHS:
                 A combined matrix of shape ``(block * nhe, block * ne)``.
         """
         self._ops.sort()
-        ops = np.array(self._ops, dtype=[
-            ("row", _data.base.idxint_dtype),
-            ("col", _data.base.idxint_dtype),
-            ("op", _data.Data),
-        ])
-        widths_and_heights = np.full(
-            self._n_blocks, self._block_size, dtype=_data.base.idxint_dtype)
-        return _data.block_build(
-            ops["row"], ops["col"], ops["op"],
-            widths_and_heights, widths_and_heights, dtype='CSR'
-        )
+
+        from timeit import default_timer as timer
+        start = timer()
+
+        if self.method == 'old':
+            ops = np.array(self._ops, dtype=[
+                ("row", _data.base.idxint_dtype),
+                ("col", _data.base.idxint_dtype),
+                ("op", _data.CSR),
+            ])
+            result = _csr._from_csr_blocks(
+                ops["row"], ops["col"], ops["op"],
+                self._n_blocks, self._block_size,
+            )
+        elif self.method == 'inplace':
+            ops = np.array(self._ops, dtype=[
+                ("row", _data.base.idxint_dtype),
+                ("col", _data.base.idxint_dtype),
+                ("op", _data.Data),
+            ])
+            widths_and_heights = np.full(
+                self._n_blocks, self._block_size, dtype=_data.base.idxint_dtype)
+            result = _data.block_build_csr(
+                ops["row"], ops["col"], ops["op"],
+                widths_and_heights, widths_and_heights
+            )
+        elif self.method == 'notinplace':
+            ops = np.array(self._ops, dtype=[
+                ("row", _data.base.idxint_dtype),
+                ("col", _data.base.idxint_dtype),
+                ("op", _data.Data),
+            ])
+            widths_and_heights = np.full(
+                self._n_blocks, self._block_size, dtype=_data.base.idxint_dtype)
+            result = _data.block_operations.block_build_csr_notinplace(
+                ops["row"], ops["col"], ops["op"],
+                widths_and_heights, widths_and_heights
+            )
+        
+        end = timer()
+        return end - start, result

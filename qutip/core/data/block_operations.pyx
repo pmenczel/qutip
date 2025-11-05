@@ -167,6 +167,104 @@ cpdef CSR block_build_csr(
     return out
 
 
+cpdef CSR block_build_csr_notinplace(
+    base.idxint[:] block_rows, base.idxint[:] block_cols, Data[:] blocks,
+    base.idxint[:] block_widths, base.idxint[:] block_heights
+):
+    # check arrays are the same length
+    if len(block_rows) != len(block_cols) or len(block_rows) != len(blocks):
+        raise ValueError("The arrays block_rows, block_cols and blocks must"
+                         " have the same length.")
+
+    cdef base.idxint num_ops = len(block_rows)
+    cdef base.idxint[:] row_pos = _cumsum(block_heights)
+    cdef base.idxint[:] col_pos = _cumsum(block_widths)
+    cdef base.idxint shape1 = row_pos[len(block_heights)]
+    cdef base.idxint shape2 = col_pos[len(block_widths)]
+
+    if shape1 == 0 or shape2 == 0:
+        raise ValueError("Cannot concatenate empty data array.")
+
+    if num_ops == 0:
+        return csr.zeros(shape1, shape2)
+
+    cdef base.idxint idx, row, column, nnz = 0
+    cdef Data block
+    cdef cnp.ndarray ops = np.empty((num_ops,), dtype=CSR)
+
+    for idx in range(num_ops):
+        row = block_rows[idx]
+        column = block_cols[idx]
+        # check ops are ordered by (row, column)
+        if idx > 0 and (
+            row < block_rows[idx - 1] or
+            (row == block_rows[idx - 1] and column <= block_cols[idx - 1])
+        ):
+            raise ValueError("The arrays block_rows and block_cols must be "
+                             "sorted by (row, column).")
+
+        # check block shape, convert to CSR if needed, calculate nnz
+        block = blocks[idx]
+        if (
+            block.shape[0] != block_heights[row]
+            or block.shape[1] != block_widths[column]
+        ):
+            raise ValueError(
+                f"Block operator does not have the correct shape at row={row},"
+                f" column={column}."
+            )
+
+        if type(block) is not CSR:
+            block = <Data>convert.to(CSR, block)
+        nnz += csr.nnz(<CSR>block)
+        ops[idx] = <CSR>block
+
+    if nnz == 0:
+        return csr.zeros(shape1, shape2)
+
+    cdef CSR out = csr.empty(shape1, shape2, nnz)
+    cdef CSR op
+
+    idx = 0
+    cdef base.idxint prev_idx, counter, end = 0
+    cdef base.idxint op_row, op_row_start, op_row_end, op_row_len
+
+    out.row_index[0] = 0
+
+    for row in range(len(block_heights)):
+        prev_idx = idx
+        while idx < num_ops:
+            if block_rows[idx] != row:
+                break
+            idx += 1
+        # now the operators in the current row have ids (prev_idx, ..., idx-1)
+
+        for op_row in range(block_heights[row]):
+            for i in range(prev_idx, idx):
+                op = ops[i]
+                if csr.nnz(op) == 0:
+                    # empty CSR matrices have uninitialized row_index entries.
+                    # it's unclear whether users should ever see such matrixes
+                    # but we support them here anyway.
+                    continue
+
+                column = block_cols[i]
+                op_row_start = op.row_index[op_row]
+                op_row_end = op.row_index[op_row + 1]
+                op_row_len = op_row_end - op_row_start
+                for counter in range(op_row_len):
+                    out.col_index[end + counter] = (
+                        op.col_index[op_row_start + counter] +
+                        col_pos[column]
+                    )
+                    out.data[end + counter] =\
+                        op.data[op_row_start + counter]
+                end += op_row_len
+            out.row_index[row_pos[row] + op_row + 1] = end
+
+    return out
+
+
 cpdef Dense block_extract_dense(Dense data,
                         base.idxint row_start, base.idxint row_stop,
                         base.idxint col_start, base.idxint col_stop):
