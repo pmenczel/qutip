@@ -39,7 +39,6 @@ from qutip.solver.heom.bofin_solvers import (
     HEOMResult,
     HEOMSolver,
     HSolverDL,
-    _GatherHEOMRHS,
 )
 from qutip.solver import (
     IntegratorException,
@@ -696,12 +695,13 @@ class TestHEOMSolver:
         assert str(err.value) == (
             "Initial state rho has dims [[3], [1]]"
             " but the system dims are [[2], [2]]"
+            " and the ADO dims are [([[2], [2]],) * 10, [1]]"
         )
 
         with pytest.raises(TypeError) as err:
             solve_method("batman")
         assert str(err.value) == (
-            "Initial ADOs passed have type <class 'str'> but a "
+            "Initial ADOs passed have type <class 'str'> but a Qobj, "
             "HierarchyADOsState or a numpy array-like instance was expected"
         )
 
@@ -1378,12 +1378,13 @@ class TestHEOMSolverWithEnv:
         assert str(err.value) == (
             "Initial state rho has dims [[3], [1]]"
             " but the system dims are [[2], [2]]"
+            " and the ADO dims are [([[2], [2]],) * 10, [1]]"
         )
 
         with pytest.raises(TypeError) as err:
             solve_method("batman")
         assert str(err.value) == (
-            "Initial ADOs passed have type <class 'str'> but a "
+            "Initial ADOs passed have type <class 'str'> but a Qobj, "
             "HierarchyADOsState or a numpy array-like instance was expected"
         )
 
@@ -1862,33 +1863,3 @@ class TestHEOMResult:
         assert result.final_state is rho
         assert result.ado_states == [ado_state]
         assert result.final_ado_state is ado_state
-
-
-class Test_GatherHEOMRHS:
-    def test_simple_gather(self):
-        def f(label):
-            return int(label.lstrip("o"))
-
-        gather_heoms = _GatherHEOMRHS(f, block=2, nhe=3)
-
-        for i in range(3):
-            for j in range(3):
-                base = 10 * (j * 2) + (i * 2)
-                block_op = _data.to(
-                    _data.CSR,
-                    _data.create(np.array([
-                        [base, base + 10],
-                        [base + 1, base + 11],
-                    ]))
-                )
-                gather_heoms.add_op(f"o{i}", f"o{j}", block_op)
-
-        op = gather_heoms.gather()
-
-        expected_op = np.array([
-            [10 * i + j for i in range(2 * 3)]
-            for j in range(2 * 3)
-        ], dtype=np.complex128)
-
-        np.testing.assert_array_equal(op.to_array(), expected_op)
-        assert isinstance(op, _data.CSR)
