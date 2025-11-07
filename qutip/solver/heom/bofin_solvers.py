@@ -675,7 +675,7 @@ class HEOMSolver(Solver):
             else H  # already a liouvillian
         )
         if isinstance(self.L_sys, QobjEvo):
-            self.L_sys.compress()
+            self.L_sys.compress(_skip_coeff=True)
 
         # Dimensions that L_sys acts on
         self._sys_dims_ = self.L_sys._dims[0].oper
@@ -822,7 +822,7 @@ class HEOMSolver(Solver):
         else:
             op = self._grad_prev_bosonic(he_n, k)
         if isinstance(op, QobjEvo):
-            op.compress()
+            op.compress(_skip_coeff=True)
         return op
 
     def _grad_prev_bosonic(self, he_n, k):
@@ -892,7 +892,7 @@ class HEOMSolver(Solver):
         else:
             op = self._grad_next_bosonic(he_n, k)
         if isinstance(op, QobjEvo):
-            op.compress()
+            op.compress(_skip_coeff=True)
         return op
 
     def _grad_next_bosonic(self, he_n, k):
@@ -928,7 +928,7 @@ class HEOMSolver(Solver):
 
         ops = {}
         for he_n in self.ados.labels:
-            ops[(idx(he_n), idx(he_n))] = self._grad_n(he_n) + self.L_sys
+            ops[(idx(he_n), idx(he_n))] = self._grad_n(he_n)
             for k in range(len(self.ados.dims)):
                 next_he = self.ados.next(he_n, k)
                 if next_he is not None:
@@ -937,7 +937,17 @@ class HEOMSolver(Solver):
                 if prev_he is not None:
                     ops[(idx(he_n), idx(prev_he))] = self._grad_prev(he_n, k)
 
-        return direct_sum_sparse(ops, self._rhs_dims)
+        if isinstance(self.L_sys, QobjEvo):
+            liouvillian_part = self.L_sys.linear_map(self._liouvillian_part)
+        else:
+            liouvillian_part = self._liouvillian_part(self.L_sys)
+
+        return liouvillian_part + direct_sum_sparse(ops, self._rhs_dims)
+
+    def _liouvillian_part(self, L):
+        return direct_sum_sparse(
+            {(idx, idx): L for idx in range(self._n_ados)}, self._rhs_dims
+        )
 
     def steady_state(
         self,
