@@ -582,6 +582,13 @@ def heomsolve(
 
         See :class:`~HEOMResult` and :class:`.Result` for the complete
         list of attributes.
+
+    Notes
+    -----
+    If the Hamiltonian or any coupling operators are time-dependent, for
+    performance reasons, avoid constructing those :class:`.QobjEvo` from
+    callables, and prefer instead the list format
+    ``[[Qobj, coefficient], ...]``.
     """
     H = QobjEvo(H, args=args, tlist=tlist)
     solver = HEOMSolver(H, bath=bath, max_depth=max_depth, options=options)
@@ -643,6 +650,13 @@ class HEOMSolver(Solver):
 
     rhs : :obj:`.QobjEvo`
         The right-hand side (RHS) of the hierarchy evolution ODE.
+
+    Notes
+    -----
+    If the Hamiltonian or any coupling operators are time-dependent, for
+    performance reasons, avoid constructing those :class:`.QobjEvo` from
+    callables, and prefer instead the list format
+    ``[[Qobj, coefficient], ...]``.
     """
 
     name = "heomsolver"
@@ -998,7 +1012,7 @@ class HEOMSolver(Solver):
             {(0, 0): operator_to_vector(qeye(self._sys_dims[0]))},
             self._ado_dims, dtype="CSR"
         ).dag().data
-        L = _data.block_overwrite_csr(L, trace, 0, 0)
+        L = _data.block_overwrite_csr(L, trace, 0, 0).as_scipy()
 
         b_mat = np.zeros(self._ado_dims[0].size, dtype=complex)
         b_mat[0] = 1.0
@@ -1015,7 +1029,7 @@ class HEOMSolver(Solver):
                 weighted_matching=mkl_weighted_matching,
             )
         else:
-            L = L.as_scipy().tocsc()
+            L = L.tocsc()
             solution = spsolve(L, b_mat)
 
         all_ados = Qobj(solution, dims=self._ado_dims, dtype='dense')
@@ -1210,6 +1224,9 @@ class HEOMSolver(Solver):
     @options.setter
     def options(self, new_options):
         Solver.options.fset(self, new_options)
+
+        if self.options["rhs_data_type"]:
+            self.rhs.to(self.options["rhs_data_type"])
 
 
 class HSolverDL(HEOMSolver):
