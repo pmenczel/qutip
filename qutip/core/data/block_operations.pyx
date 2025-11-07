@@ -190,7 +190,9 @@ cpdef CSR block_build_csr_notinplace(
 
     cdef base.idxint idx, row, column, nnz = 0
     cdef Data block
-    cdef cnp.ndarray ops = np.empty((num_ops,), dtype=CSR)
+
+    cdef Data[:] blocks_copy = blocks
+    cdef bool copied = False
 
     for idx in range(num_ops):
         row = block_rows[idx]
@@ -216,8 +218,11 @@ cpdef CSR block_build_csr_notinplace(
 
         if type(block) is not CSR:
             block = <Data>convert.to(CSR, block)
+            if not copied:
+                blocks_copy = np.array(blocks, dtype=Data, copy=True)
+                copied = True
+            blocks_copy[idx] = block
         nnz += csr.nnz(<CSR>block)
-        ops[idx] = <CSR>block
 
     if nnz == 0:
         return csr.zeros(shape1, shape2)
@@ -241,7 +246,7 @@ cpdef CSR block_build_csr_notinplace(
 
         for op_row in range(block_heights[row]):
             for i in range(prev_idx, idx):
-                op = ops[i]
+                op = <CSR>blocks_copy[i]
                 if csr.nnz(op) == 0:
                     # empty CSR matrices have uninitialized row_index entries.
                     # it's unclear whether users should ever see such matrixes
