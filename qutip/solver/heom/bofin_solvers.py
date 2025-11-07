@@ -1137,7 +1137,12 @@ class HEOMSolver(Solver):
                         f"Initial ADOs passed have shape {state.shape}"
                         f" but the solver hierarchy shape is {hierarchy_shape}"
                     )
-                rho0_he = HierarchyADOsState(None, None, state)._ado_state
+                rho0_he = HierarchyADOsState(
+                    # Reuse code for numpy ADOs -> QObj ADOs conversion.
+                    # The first argument here doesn't matter,
+                    # as long as it has the correct _dims.
+                    qeye(self._sys_dims_[0]), self.ados, state
+                )._ado_state
             else:
                 raise TypeError(
                     f"Initial ADOs passed have type {type(state)}"
