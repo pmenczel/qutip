@@ -596,12 +596,18 @@ class Qobj:
             indices = np.argsort(np.abs(ket_full))[::-1]
 
         parts = []
+        def make_string(l):
+            if isinstance(l, (list, tuple)):
+                contents = dim_separator.join(
+                    map(make_string, l)
+                )
+                return f"({contents})"
+            return str(l)
+
         for i in indices:
             if np.abs(ket_full[i]) > 10**-(decimal_places):
                 coeff = ket_full.item(i)
-                basis_str = dim_separator.join(
-                    map(str, dims.idx2dims(i))
-                )
+                basis_str = make_string(dims.idx2dims(i))[1:-1]
                 parts.append(template.format(coeff, basis_str))
 
         if len(parts) == 0:  # return something for norm-zero states.

@@ -591,6 +591,7 @@ def test_QobjEigenEnergies():
 @pytest.mark.parametrize("space", [
     qutip.core.dimensions.Space(5),
     qutip.core.dimensions.Space([2, 3]),
+    qutip.core.dimensions.Space(([2], [3])),
     qutip.energy_restricted.EnrSpace([2, 3], 2),
 ])
 def test_QobjEigenStates(space):
@@ -1360,6 +1361,8 @@ def test_constructing_op_from_states():
             {"decimal_places": 5}),
         (0*qutip.basis(2, 0), "0", {}),
         (qutip.enr_fock([3, 3], 2, [1, 1]), "(1+0j) |1, 1>", {}),
+        (qutip.direct_sum([2 * qutip.basis(2, 0), qutip.basis([2, 2], [1, 0])]),
+            "(2+0j) |0, (0)> + (1+0j) |1, (1, 0)>", {})
 ])
 def test_basis_expansion(state: qutip.Qobj, expected: str, kwargs: dict):
     result = state.basis_expansion(**kwargs)

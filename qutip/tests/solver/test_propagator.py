@@ -2,7 +2,7 @@ import numpy as np
 from scipy.integrate import trapezoid
 from qutip import (destroy, propagator, Propagator, propagator_steadystate,
                    steadystate, tensor, qeye, basis, QobjEvo, sesolve,
-                   liouvillian, rand_dm, enr_identity, enr_destroy)
+                   liouvillian, rand_dm, enr_identity, enr_destroy, direct_sum)
 import qutip
 import pytest
 from qutip.solver.brmesolve import BRSolver
@@ -99,10 +99,10 @@ def testPropHOSteady():
 @pytest.mark.parametrize("H", [
     pytest.param(tensor([qeye(2), qeye(2)]), id="tensor"),
     pytest.param(enr_identity([2, 2], 1), id="enr"),
+    pytest.param(direct_sum([[qeye(2), None], [None, qeye(2)]]), id="sumspace"),
 ])
 def testPropHDims(H):
     "Propagator: preserve H dims (unitary_mode='single', parallel=False)"
-    H = tensor([qeye(2), qeye(2)])
     U = propagator(H, 1)
     assert U._dims == H._dims
 
@@ -116,6 +116,11 @@ def testPropHDims(H):
         liouvillian(enr_identity([2, 2], 1), list(enr_destroy([2, 2], 1))),
         id="enr"
     ),
+    pytest.param(
+        liouvillian(direct_sum([[qeye(2), None], [None, qeye(2)]]),
+                    [direct_sum([[None, destroy(2)], [destroy(2), None]])]),
+        id="sumspace"
+    )
 ])
 def testPropHSuper(L):
     "Propagator: preserve super_oper dims"

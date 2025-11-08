@@ -2,7 +2,8 @@ from qutip.solver.dysolve_propagator import DysolvePropagator, dysolve_propagato
 from qutip.solver import propagator
 from qutip.solver.cy.dysolve import cy_compute_integrals
 from qutip import (
-    sigmax, sigmay, sigmaz, qeye, qeye_like, tensor, enr_destroy, CoreOptions
+    sigmax, sigmay, sigmaz, qeye, qeye_like, tensor, enr_destroy, direct_sum,
+    CoreOptions
 )
 from scipy.special import factorial
 import numpy as np
@@ -181,9 +182,9 @@ def test_matrix_elements(empty_instance, max_order, X, answer):
 
 
 @pytest.mark.parametrize("H_0", [
-    sigmaz(), sigmay(), sigmaz(), qeye(2), tensor(sigmax(), sigmaz()),
+    sigmay(), sigmaz(), qeye(2), tensor(sigmax(), sigmaz()),
     tensor(sigmax(), sigmaz()) + tensor(qeye(2), sigmay()),
-    _enr_xz()
+    _enr_xz(), direct_sum([[sigmax(), None], [None, sigmay()]])
 ])
 @pytest.mark.parametrize("t_i, t_f", [
     (0, 0.1), (0, 0.5), (0, 1), (0, 10), (0, -1),
@@ -251,13 +252,14 @@ def test_2x2_propagators_list_times(H_0, X, ts, omega):
         assert Us == props
 
 
-@pytest.mark.parametrize("H_0", [
-    tensor(sigmax(), sigmaz()) + tensor(qeye(2), sigmay()),
-    tensor(sigmaz(), qeye(2))
-])
-@pytest.mark.parametrize("X", [
-    tensor(qeye(2), sigmaz()),
-    tensor(sigmaz(), sigmax()) + tensor(sigmay(), qeye(2))
+@pytest.mark.parametrize(["H_0", "X"], [
+    pytest.param(tensor(sigmax(), sigmaz()) + tensor(qeye(2), sigmay()),
+                 tensor(qeye(2), sigmaz())),
+    pytest.param(tensor(sigmaz(), qeye(2)),
+                 tensor(sigmaz(), sigmax()) + tensor(sigmay(), qeye(2))),
+    pytest.param(_enr_zz(), _enr_xz()),
+    pytest.param(direct_sum([[sigmax(), None], [None, sigmaz()]]),
+                 direct_sum([[None, sigmay()], [sigmay(), None]]))
 ])
 @pytest.mark.parametrize("omega", [
     5, 10
@@ -283,13 +285,14 @@ def test_4x4_propagators_single_time(H_0, X, omega, t_f):
         assert U == prop
 
 
-@pytest.mark.parametrize("H_0", [
-    tensor(sigmax(), sigmaz()) + tensor(qeye(2), sigmay()),
-    tensor(sigmaz(), qeye(2))
-])
-@pytest.mark.parametrize("X", [
-    tensor(qeye(2), sigmaz()),
-    tensor(sigmaz(), sigmax()) + tensor(sigmay(), qeye(2))
+@pytest.mark.parametrize(["H_0", "X"], [
+    pytest.param(tensor(sigmax(), sigmaz()) + tensor(qeye(2), sigmay()),
+                 tensor(qeye(2), sigmaz())),
+    pytest.param(tensor(sigmaz(), qeye(2)),
+                 tensor(sigmaz(), sigmax()) + tensor(sigmay(), qeye(2))),
+    pytest.param(_enr_zz(), _enr_xz()),
+    pytest.param(direct_sum([[sigmax(), None], [None, sigmaz()]]),
+                 direct_sum([[None, sigmay()], [sigmay(), None]]))
 ])
 @pytest.mark.parametrize("omega", [
     0, 10
@@ -317,28 +320,6 @@ def test_4x4_propagators_list_times(H_0, X, omega, ts):
         assert Us == props
 
 
-@pytest.mark.parametrize("omega", [5, 10])
-@pytest.mark.parametrize("t_f", [1, -1])
-def test_enr_propagators_single_time(omega, t_f):
-    # reuses other test with both H_0 and X set to enr space operators
-    H_0 = _enr_zz()
-    X = _enr_xz()
-    test_4x4_propagators_single_time(H_0, X, omega, t_f)
-
-
-@pytest.mark.parametrize("omega", [0, 10])
-@pytest.mark.parametrize("ts", [
-    [0, 0.25, 0.5],
-    [0, -0.25, -0.5],
-    [-0.1, 0, 0.1]
-])
-def test_enr_propagators_list_times(omega, ts):
-    # reuses other test with both H_0 and X set to enr space operators
-    H_0 = _enr_zz()
-    X = _enr_xz()
-    test_4x4_propagators_list_times(H_0, X, omega, ts)
-
-
 @pytest.mark.parametrize("H_0, X", [
     (
         sigmaz(), sigmax(),
@@ -356,6 +337,10 @@ def test_enr_propagators_list_times(omega, ts):
     ),
     (
         _enr_zz(), _enr_xx()
+    ),
+    (
+        direct_sum([[sigmax(), None], [None, sigmaz()]]),
+        direct_sum([[None, sigmay()], [sigmay(), None]])
     )
 ])
 def test_dims(H_0, X):
@@ -363,4 +348,4 @@ def test_dims(H_0, X):
         H_0, X, 1, {'max_order': 0}
     )
     U = dysolve(0.001)
-    assert (dysolve._H_0.dims == dysolve._X.dims == U.dims)
+    assert (dysolve._H_0._dims == dysolve._X._dims == U._dims)

@@ -136,3 +136,21 @@ def test_accepts_enr(method):
 
     assert s.shape == (2, 1,)
     assert np.allclose(s, 0)
+
+@pytest.mark.parametrize("method", ["pinv", "direct"])
+def test_accepts_sumspace(method):
+    H = qutip.direct_sum([[qutip.sigmax(), None], [None, 0]])
+    a1 = qutip.direct_sum_sparse({(1, 0): qutip.basis(2, 0).dag()}, H._dims)
+    a2 = qutip.direct_sum_sparse({(1, 0): qutip.basis(2, 1).dag()}, H._dims)
+    L = qutip.liouvillian(H, [a1, a2])
+    j, d, s = qutip.countstat_current_noise(L, [a1, a2], method=method)
+
+    # steady state is ground state, all cumulants are zero
+    assert j.shape == (2,)
+    assert np.allclose(j, 0)
+
+    assert d.shape == (2, 2, 1,)
+    assert np.allclose(d, 0)
+
+    assert s.shape == (2, 1,)
+    assert np.allclose(s, 0)

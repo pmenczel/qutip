@@ -21,7 +21,7 @@ from typing import Literal, Sequence
 
 from . import Qobj, create, destroy, jmat, basis, to_super, to_choi, to_chi
 from .core import data as _data
-from .core.dimensions import Dimensions, Space, SuperSpace
+from .core.dimensions import Dimensions, Space, SuperSpace, SumSpace
 from .typing import SpaceLike, LayerType
 
 
@@ -731,6 +731,9 @@ def rand_super(
         Storage representation. Any data-layer known to ``qutip.data.to`` is
         accepted.
     """
+    if isinstance(sp := Space(dimensions), SumSpace) and sp.issuper:
+        raise NotImplementedError("rand_super does not currently support"
+                                  f" direct sum of superspaces: {dimensions}")
     dtype = _data._parse_default_dtype(dtype, "dense")
     generator = _get_generator(seed)
     from .solver.propagator import propagator
@@ -799,6 +802,9 @@ def rand_super_bcsz(
         A superoperator acting on vectorized dim × dim density operators,
         sampled from the BCSZ distribution.
     """
+    if isinstance(sp := Space(dimensions), SumSpace) and sp.issuper:
+        raise NotImplementedError("rand_super_bcsz does not currently support"
+                                  f" direct sum of superspaces: {dimensions}")
     dtype = _data._parse_default_dtype(dtype, "sparse")
     generator = _get_generator(seed)
     N, dims = _implicit_tensor_dimensions(dimensions, superoper=True)

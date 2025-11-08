@@ -43,7 +43,9 @@ def assert_kraus_equivalence(a, b, tol=tol):
 
 
 @pytest.fixture(scope="function",
-                params=[2, 3, 7, pytest.param(EnrSpace([3, 3], 2), id="enr")])
+                params=[2, 3, 7,
+                        pytest.param(EnrSpace([3, 3], 2), id="enr"),
+                        pytest.param(Space(([2, 2], [3])), id="direct-sum")])
 def dimension(request):
     # There are also some cases in the file where this fixture is explicitly
     # overridden by a more local mark.  That is deliberate.

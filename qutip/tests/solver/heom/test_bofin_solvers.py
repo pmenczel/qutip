@@ -8,9 +8,9 @@ from numpy.linalg import eigvalsh
 from scipy.integrate import quad
 
 from qutip import (
-    basis, destroy, direct_component, expect, fock_dm, liouvillian, mesolve,
-    qeye, rand_ket, sigmax, sigmaz, sigmay, tensor, vector_to_operator,
-    fidelity, fdestroy, Qobj, QobjEvo
+    basis, destroy, direct_component, direct_sum, expect, fock_dm, liouvillian,
+    mesolve, qeye, rand_ket, sigmax, sigmaz, sigmay, tensor,
+    vector_to_operator, fidelity, fdestroy, Qobj, QobjEvo
 )
 from qutip.solver.heom.bofin_baths import (
     BathExponent,
@@ -40,6 +40,8 @@ from qutip.solver.heom.bofin_solvers import (
     HEOMSolver,
     HSolverDL,
 )
+from qutip.core.dimensions import Dimensions
+from qutip.core.energy_restricted import EnrSpace
 from qutip.solver import (
     IntegratorException,
 )
@@ -213,10 +215,10 @@ class TestHierarchyADOsState:
     def mk_rho_and_soln(self, ados, rho_dims, format):
         n_ados = len(ados.labels)
         if format == "numpy":
-            ado_soln = np.random.rand(n_ados, *[np.prod(d) for d in rho_dims])
+            ado_soln = np.random.rand(n_ados, *Dimensions(rho_dims).shape)
             rho = Qobj(ado_soln[0, :].T, dims=rho_dims)
         elif format == "ados-sum":
-            ados_space = (rho_dims,) * n_ados
+            ados_space = (Dimensions(rho_dims),) * n_ados
             ado_soln = rand_ket(ados_space)
             rho = vector_to_operator(direct_component(ado_soln, 0))
         else:
@@ -227,9 +229,14 @@ class TestHierarchyADOsState:
         pytest.param("numpy", id="numpy"),
         pytest.param("ados-sum", id="ados-sum"),
     ])
-    def test_create(self, format):
+    @pytest.mark.parametrize("rho_dims", [
+        pytest.param([[2], [2]], id="normal"),
+        pytest.param([([2], [3]), ([2], [3])], id="sum space"),
+        pytest.param([EnrSpace([2, 2], 1), EnrSpace([2, 2], 1)], id="enr"),
+    ])
+    def test_create(self, format, rho_dims):
         ados = self.mk_ados([2, 3], max_depth=2)
-        rho, ado_soln = self.mk_rho_and_soln(ados, [[2], [2]], format)
+        rho, ado_soln = self.mk_rho_and_soln(ados, rho_dims, format)
         ado_state = HierarchyADOsState(rho, ados, ado_soln)
         assert ado_state.rho == rho
         assert ado_state.labels == ados.labels
@@ -241,17 +248,22 @@ class TestHierarchyADOsState:
         pytest.param("numpy", id="numpy"),
         pytest.param("ados-sum", id="ados-sum"),
     ])
-    def test_extract(self, format):
+    @pytest.mark.parametrize("rho_dims", [
+        pytest.param([[2], [2]], id="normal"),
+        pytest.param([([2], [3]), ([2], [3])], id="sum space"),
+        pytest.param([EnrSpace([2, 2], 1), EnrSpace([2, 2], 1)], id="enr"),
+    ])
+    def test_extract(self, format, rho_dims):
         ados = self.mk_ados([2, 3], max_depth=2)
-        rho, ado_soln = self.mk_rho_and_soln(ados, [[2], [2]], format)
+        rho, ado_soln = self.mk_rho_and_soln(ados, rho_dims, format)
         ado_state = HierarchyADOsState(rho, ados, ado_soln)
         assert ado_state.extract((0, 0)) == rho
         assert ado_state.extract(0) == rho
         if format == "numpy":
             assert (ado_state.extract((0, 1))
-                    == Qobj(ado_soln[1, :].T, dims=rho.dims))
+                    == Qobj(ado_soln[1, :].T, dims=rho._dims))
             assert (ado_state.extract(1)
-                    == Qobj(ado_soln[1, :].T, dims=rho.dims))
+                    == Qobj(ado_soln[1, :].T, dims=rho._dims))
         elif format == "ados-sum":
             assert (ado_state.extract((0, 1))
                     == vector_to_operator(direct_component(ado_soln, 1)))
@@ -781,18 +793,27 @@ class TestHEOMSolver:
         else:
             assert_raises_steady_state_time_dependent(hsolver)
 
+    @pytest.mark.parametrize("sum_base_space", [True, False])
     def test_steady_state(
-        self, atol=1e-3
+        self, sum_base_space, atol=1e-3
     ):
-        H_sys = 0.25 * sigmaz() + 0.5 * sigmay()
+        if sum_base_space:
+            # test everything works if the base space is a direct sum
+            sy = direct_sum([[0, -1j], [1j, 0]])
+            sz = direct_sum([[1, 0], [0, -1]])
+            rho0 = direct_sum([[1, 0], [0, 0]])
+        else:
+            sy = sigmay()
+            sz = sigmaz()
+            rho0 = basis(2, 0) * basis(2, 0).dag()
 
-        bath = DrudeLorentzBath(sigmaz(), lam=0.025,
-                                gamma=0.05, T=1/0.95, Nk=2)
+        H_sys = 0.25 * sz + 0.5 * sy
+
+        bath = DrudeLorentzBath(sz, lam=0.025, gamma=0.05, T=1/0.95, Nk=2)
         options = {"nsteps": 15000, "store_states": True}
         hsolver = HEOMSolver(H_sys, bath, 5, options=options)
 
         tlist = np.linspace(0, 500, 21)
-        rho0 = basis(2, 0) * basis(2, 0).dag()
 
         result = hsolver.run(rho0, tlist)
         rho_final, ado_state = hsolver.steady_state()

@@ -4,7 +4,7 @@ import pytest
 
 from qutip import qeye, to_kraus, kraus_to_choi, CoreOptions, Qobj
 from qutip import data as _data
-from qutip.core.dimensions import Space
+from qutip.core.dimensions import Space, SumSpace
 from qutip.core.energy_restricted import EnrSpace
 from qutip.random_objects import (
     rand_herm,
@@ -23,9 +23,13 @@ from qutip.random_objects import (
     [8],
     [2, 2, 3],
     [[2], [2]],
+    ([3], [2, 2]),
+    ([[2], [2]], [[2], [2]]),
     Space(3),
+    SumSpace(Space([2, 2]), repeat=3),
     EnrSpace([2, 2], 1)
-], ids=["int", "list", "tensor", "super", "Space", "ENR"])
+], ids=["int", "list", "tensor", "super", "sum","supersum",
+        "Space", "repeat_sum", "ENR"])
 def dimensions(request):
     return request.param
 
@@ -52,9 +56,9 @@ def _assert_metadata(random_qobj, dims, dtype=None, super=False, ket=False):
         N = dims.size
         dims = dims.as_list()
     else:
-        N = np.prod(dims)
+        N = Space(dims).size
 
-    if super and not isinstance(dims[0], list):
+    if super and not (isinstance(dims, list) and isinstance(dims[0], list)):
         target_dims_0 = [dims, dims]
         shape0 = N**2
     else:
@@ -106,7 +110,7 @@ def test_rand_herm_Eigs(dimensions, density):
     if isinstance(dimensions, Space):
         N = dimensions.size
     else:
-        N = np.prod(dimensions)
+        N = Space(dimensions).size
     eigs = np.random.random(N)
     eigs /= np.sum(eigs)
     eigs.sort()
@@ -126,7 +130,6 @@ def test_rand_unitary(dimensions, distribution, density, dtype):
     """
     Random Qobjs: Tests that unitaries are actually unitary.
     """
-    N = np.prod(dimensions)
     random_qobj = rand_unitary(
         dimensions, distribution=distribution,
         density=density, dtype=dtype
@@ -155,7 +158,7 @@ def test_rand_dm(dimensions, kw, dtype, distribution):
     if isinstance(dimensions, Space):
         N = dimensions.size
     else:
-        N = np.prod(dimensions)
+        N = Space(dimensions).size
 
     if "eigenvalues" in kw:
         eigs = np.random.random(N)
@@ -217,7 +220,10 @@ def test_rand_ket(dimensions, distribution, dtype):
     random_qobj = rand_ket(dimensions, distribution=distribution, dtype=dtype)
 
     target_type = "ket"
-    if isinstance(dimensions, list) and isinstance(dimensions[0], list):
+    if (
+        isinstance(dimensions, list) and isinstance(dimensions[0], list)
+        or isinstance(dimensions, tuple) and isinstance(dimensions[0][0], list)
+    ):
         target_type = "operator-ket"
     assert random_qobj.type == target_type
     assert abs(random_qobj.norm() - 1) < 1e-14
@@ -230,6 +236,13 @@ def test_rand_super(dimensions, dtype, superrep):
     """
     Random Qobjs: Super operator.
     """
+    if (
+        isinstance(dimensions, tuple)
+        and isinstance(dimensions[0], list)
+        and isinstance(dimensions[0][0], list)
+    ):
+        pytest.xfail("rand_super does not support direct sum of superspaces")
+
     random_qobj = rand_super(dimensions, dtype=dtype, superrep=superrep)
     assert random_qobj.issuper
     with CoreOptions(atol=2e-9):
@@ -245,6 +258,13 @@ def test_rand_super_bcsz(dimensions, dtype, rank, superrep):
     """
     Random Qobjs: Tests that BCSZ-random superoperators are CPTP.
     """
+    if (
+        isinstance(dimensions, tuple)
+        and isinstance(dimensions[0], list)
+        and isinstance(dimensions[0][0], list)
+    ):
+        pytest.xfail(
+            "rand_super_bcsz does not support direct sum of superspaces")
 
     random_qobj = rand_super_bcsz(dimensions, rank=rank,
                                   dtype=dtype, superrep=superrep)
@@ -262,10 +282,10 @@ def test_rand_super_bcsz(dimensions, dtype, rank, superrep):
         and isinstance(dimensions[0], list)
     ):
         # dimensions = [[a], [a]], qobj.dims = [[[a], [a]], [[a], [a]]]
-        rank = np.prod(dimensions)
+        rank = Space(dimensions).size
     elif not rank:
         # dimensions = [a], qobj.dims = [[[a], [a]], [[a], [a]]]
-        rank = np.prod(dimensions)**2
+        rank = Space(dimensions).size**2
     obtained_rank = len(to_kraus(random_qobj, tol=1e-13))
     assert obtained_rank == rank
 
@@ -296,7 +316,10 @@ def test_random_seeds(function, seed):
 
 
 def test_kraus_map(dimensions, dtype):
-    if isinstance(dimensions, list) and isinstance(dimensions[0], list):
+    if (
+        isinstance(dimensions, list) and isinstance(dimensions[0], list)
+        or isinstance(dimensions, tuple) and isinstance(dimensions[0][0], list)
+    ):
         # Each element of a kraus map cannot be a super operators
         with pytest.raises(TypeError) as err:
             kmap = rand_kraus_map(dimensions, dtype=dtype)
