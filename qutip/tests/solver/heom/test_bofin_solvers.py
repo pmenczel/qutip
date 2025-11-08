@@ -909,9 +909,9 @@ class TestHEOMSolver:
         for i in range(3):
             np.testing.assert_allclose(
                 result.expect[i],
-                np.concat([result1.expect[i][:-1],
-                           result2.expect[i][:-1],
-                           result3.expect[i]]),
+                np.concatenate([result1.expect[i][:-1],
+                                result2.expect[i][:-1],
+                                result3.expect[i]]),
                 atol=atol
             )
 
@@ -1626,9 +1626,9 @@ class TestHEOMSolverWithEnv:
         for i in range(3):
             np.testing.assert_allclose(
                 result.expect[i],
-                np.concat([result1.expect[i][:-1],
-                           result2.expect[i][:-1],
-                           result3.expect[i]]),
+                np.concatenate([result1.expect[i][:-1],
+                                result2.expect[i][:-1],
+                                result3.expect[i]]),
                 atol=atol
             )
 
