@@ -878,10 +878,10 @@ cdef class QobjEvo:
             else:
                 func_elements.append(element)
 
-        if not _skip_coeff:
-            coeff_elements = self._compress_merge_coeff(coeff_elements)
         if not _skip_qobj:
             coeff_elements = self._compress_merge_qobj(coeff_elements)
+        if not _skip_coeff:
+            coeff_elements = self._compress_merge_coeff(coeff_elements)
 
         cleaned_elements = coeff_elements + func_elements
 
