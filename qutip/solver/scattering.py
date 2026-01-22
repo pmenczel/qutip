@@ -71,11 +71,14 @@ def photon_scattering_amplitude(propagator, c_ops, tlist, taus, psi, psit):
         State at the end of the evolution.
     """
     # Extract the full list of taus
+    print(f"...... photon scattering amplitude ({taus})")
     tau_collapse = []
     for i, tau_wg in enumerate(taus):
         for t in tau_wg:
             tau_collapse.append((t, i))
+    print(f"...... {tau_collapse}")
     tau_collapse.sort(key=lambda tup: tup[0])  # sort tau_collapse by time
+    print(f"...... {tau_collapse}")
 
     tq = tlist[0]
     # Compute Prod Ueff(tq, tq-1)
@@ -83,8 +86,13 @@ def photon_scattering_amplitude(propagator, c_ops, tlist, taus, psi, psit):
         tprev = tq
         tq, q = tau
         psi = c_ops[q] * propagator(tq, tprev) * psi
+        print(f"...... - {tau} / {tprev} / {tq} / {q}")
+        print(f"...... - <{psi}>")
 
     psi = propagator(tlist[-1], tq) * psi
+    print(f"...... <{psi}>")
+    print(f"...... <{psit}>")
+    print(f"...... result: {psit.overlap(psi)}")
     return psit.overlap(psi)
 
 
@@ -162,6 +170,8 @@ def _temporal_scattered_matrix(H, psi0, n_emissions, c_ops, tlist,
     print(Heff)
 
     evolver = Propagator(Heff, memoize=len(tlist))
+    print(f"xxx evolver is unitary: {evolver.unitary}")
+    print(f"xxx cte: {evolver.cte} memoize: {evolver.memoize} tol: {evolver.tol}")
 
     all_emission_indices = combinations_with_replacement(range(T), n_emissions)
     print("... all_emission_indices: ", all_emission_indices)
@@ -188,6 +198,7 @@ def _temporal_scattered_matrix(H, psi0, n_emissions, c_ops, tlist,
             phi_n[idx] = phi_n_amp
             print(f"... -- for indices {indices} got taus=({taus}), phi_n_amp={phi_n_amp} and idx={idx}")
             print(f"... -- now phi_n is {phi_n}")
+    print()
     return phi_n
 
 
