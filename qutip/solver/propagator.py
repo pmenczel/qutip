@@ -19,7 +19,7 @@ from typing import Any
 from qutip.settings import settings
 
 
-DEBUG = False
+DEBUG = True
 
 
 def propagator_piecewise(
