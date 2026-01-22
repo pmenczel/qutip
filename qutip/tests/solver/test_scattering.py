@@ -7,7 +7,7 @@ module. Tests are approximate with low resolution to minimize runtime.
 # Contact: benbartlett@stanford.edu
 
 import numpy as np
-from qutip import create, destroy, basis
+from qutip import create, destroy, basis, Qobj
 from qutip.solver.scattering import *
 
 
@@ -74,6 +74,14 @@ class TestScattering:
         Checks that a trivial splitting of a waveguide collapse operator like
         [sm] -> [sm/sqrt2, sm/sqrt2] doesn't affect the normalization or result
         """
+
+        print(" ----------------------------------------------- ")
+        test_qobj = Qobj([[0.8891919, -0.45278888j], [-0.45278888j, 0.86036647]])
+        print(test_qobj)
+        print(" ----------------------------------------------- ")
+        print(test_qobj.inv())
+        print(" ----------------------------------------------- ")
+
         gamma = 1.0
         sm = np.sqrt(gamma) * destroy(2)
         pulseArea = np.pi
