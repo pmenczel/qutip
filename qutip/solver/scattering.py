@@ -151,24 +151,31 @@ def _temporal_scattered_matrix(H, psi0, n_emissions, c_ops, tlist,
     W = len(c_ops)
     em_dims = max(n_emissions, 1)
     phi_n = np.zeros([W * T] * em_dims, dtype=complex)
+    print(f"... temporal scattered matrix: T={T}, W={W}, em_dims={em_dims}")
 
     if construct_effective_hamiltonian:
         # Construct an effective Hamiltonian from system hamiltonian and c_ops
         Heff = QobjEvo(H) - 1j / 2 * sum([op.dag() * op for op in c_ops])
     else:
         Heff = H
+    print("... Heff:")
+    print(Heff)
 
     evolver = Propagator(Heff, memoize=len(tlist))
 
     all_emission_indices = combinations_with_replacement(range(T), n_emissions)
+    print("... all_emission_indices: ", all_emission_indices)
 
     if system_zero_state is None:
         system_zero_state = psi0
+    print("... system_zero_state: ", system_zero_state)
 
     # Compute <omega_tau> for all combinations of tau
     for emission_indices in all_emission_indices:
         # Consider unique partitionings of emission times into waveguides
         partition = tuple(set(set_partition(emission_indices, W)))
+        print(f"... - {emission_indices}")
+        print("... - ", partition)
         # Consider all possible partitionings of time bins by waveguide
         for indices in partition:
             taus = [[tlist[i] for i in wg_indices] for wg_indices in indices]
@@ -179,6 +186,8 @@ def _temporal_scattered_matrix(H, psi0, n_emissions, c_ops, tlist,
             # Add scatter amplitude times temporal basis to overall state
             idx = _temporal_basis_idx(indices, T)
             phi_n[idx] = phi_n_amp
+            print(f"... -- for indices {indices} got taus=({taus}), phi_n_amp={phi_n_amp} and idx={idx}")
+            print(f"... -- now phi_n is {phi_n}")
     return phi_n
 
 
@@ -279,12 +288,19 @@ def scattering_probability(H, psi0, n_emissions, c_ops, tlist,
     phi_n = _temporal_scattered_matrix(H, psi0, n_emissions, c_ops, tlist,
                                        system_zero_state,
                                        construct_effective_hamiltonian)
+    print("scattering probability: temporal scattered matrix is:")
+    print(phi_n)
+    print()
     T = len(tlist)
     W = len(c_ops)
 
     # Compute <omega_tau> for all combinations of tau
     all_emission_indices = combinations_with_replacement(range(T), n_emissions)
     probs = np.zeros([T] * n_emissions)
+
+    print(f"T={T}, W={W}")
+    print(f"all_emission_indices: {all_emission_indices}")
+    print(f"probs: {probs}")
 
     # Project scattered state onto temporal basis
     for emit_indices in all_emission_indices:
@@ -296,7 +312,12 @@ def scattering_probability(H, psi0, n_emissions, c_ops, tlist,
             amplitude = phi_n[idx]
             probs[emit_indices] += np.real(amplitude.conjugate() * amplitude)
 
+        print(f"- index {emit_indices} done, partition: {partition}")
+        print(f"- now probs: {probs}")
+        print()
+
     # Iteratively integrate to obtain single value
     while probs.shape != ():
         probs = trapezoid(probs, x=tlist)
+        print(f"-- after integration, probs: {probs}")
     return np.abs(probs)

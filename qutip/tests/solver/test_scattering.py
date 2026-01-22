@@ -86,6 +86,9 @@ class TestScattering:
         # Run the test
         c_ops = [sm]
         c_ops_split = [sm / np.sqrt(2), sm / np.sqrt(2)]
+        print(f"test: running with c_ops {c_ops}")
         P1 = scattering_probability(Htls, psi0, 1, c_ops, tlist)
+        print(f"\n\ntest: running with c_ops {c_ops}")
         P1_split = scattering_probability(Htls, psi0, 1, c_ops_split, tlist)
+        print(f"\n\ntest: runs complete, P1={P1}, P1_split={P1_split}")
         assert np.abs(P1/P1_split - 1) < 1e-7
