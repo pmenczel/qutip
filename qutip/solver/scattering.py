@@ -16,6 +16,10 @@ from itertools import product, combinations_with_replacement
 from ..core import basis, tensor, zero_ket, Qobj, QobjEvo
 from .propagator import propagator, Propagator
 
+
+from . import propagator as prop_mod
+
+
 __all__ = ['temporal_basis_vector',
            'temporal_scattered_state',
            'scattering_probability']
@@ -89,7 +93,9 @@ def photon_scattering_amplitude(propagator, c_ops, tlist, taus, psi, psit):
         print(f"...... - {tau} / {tprev} / {tq} / {q}")
         print(f"...... - <{psi}>")
 
+    prop_mod.DEBUG = True
     psi = propagator(tlist[-1], tq) * psi
+    prop_mod.DEBUG = False
     print(f"...... <{psi}>")
     print(f"...... <{psit}>")
     print(f"...... result: {psit.overlap(psi)}")

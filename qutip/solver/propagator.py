@@ -19,6 +19,9 @@ from typing import Any
 from qutip.settings import settings
 
 
+DEBUG = False
+
+
 def propagator_piecewise(
     H: QobjEvo,
     tlist: list[Number],
@@ -340,12 +343,22 @@ class Propagator:
         """
         idx = np.searchsorted(self.times, t)
         if idx < len(self.times) and abs(t-self.times[idx]) <= self.tol:
+            if DEBUG:
+                print(f"////////// lorc a {idx}")
             U = self.props[idx]
         elif idx > 0 and abs(t-self.times[idx-1]) <= self.tol:
+            if DEBUG:
+                print(f"////////// lorc b {idx}")
             U = self.props[idx-1]
         else:
+            if DEBUG:
+                print(f"////////// lorc c {idx}")
             U = self._compute(t, idx)
             self._insert(t, U, idx)
+        if DEBUG:
+            print(f"////////// lorc done")
+            print(U)
+            print(f"//////////")
         return U
 
     def __call__(self, t: float, t_start: float = 0, **args):
@@ -365,7 +378,11 @@ class Propagator:
             will be used in future call.
         """
         # We could improve it when the system is constant using U(2t) = U(t)**2
+        if DEBUG:
+            print(f"////////// call propagator t={t} t_start={t_start}")
         if not self.cte and args and args != self.args:
+            if DEBUG:
+                print(f"////////// update args")
             self.args = args
             self.solver._argument(args)
             self.times = [0]
@@ -373,13 +390,28 @@ class Propagator:
             self.solver.start(self.props[0], self.times[0])
 
         if t_start:
+            if DEBUG:
+                print(f"////////// a")
             if t == t_start:
+                if DEBUG:
+                    print(f"////////// b")
                 U = self._lookup_or_compute(0)
             if self.cte:
+                if DEBUG:
+                    print(f"////////// c")
                 U = self._lookup_or_compute(t - t_start)
             else:
+                if DEBUG:
+                    print(f"////////// d")
                 Uinv = self._inv(self._lookup_or_compute(t_start))
-                U = self._lookup_or_compute(t) @ Uinv
+                if DEBUG:
+                    print(Uinv)
+                    print(" - - - ")
+                x = self._lookup_or_compute(t)
+                if DEBUG:
+                    print(x)
+                    print(" - - - ")
+                U = x @ Uinv
         else:
             U = self._lookup_or_compute(t)
         return U
@@ -406,16 +438,28 @@ class Propagator:
         (time, propagator) close to the desired time.
         """
         t_last = self.solver._integrator.get_state(copy=False)[0]
+        if DEBUG:
+            print(f"////////// compute: {t} / {idx} / {t_last}")
         if self.times[idx-1] <= t_last <= t:
+            if DEBUG:
+                print(f"////////// compute foo")
             U = self.solver.step(t)
         elif idx > 0:
+            if DEBUG:
+                print(f"////////// compute bar")
             self.solver.start(self.props[idx-1], self.times[idx-1])
             U = self.solver.step(t)
         else:
+            if DEBUG:
+                print(f"////////// compute baz")
             # Evolving backward in time is not supported by all integrator.
             self.solver.start(qeye_like(self.props[0]), t)
             Uinv = self.solver.step(self.times[idx])
             U = self._inv(Uinv)
+        if DEBUG:
+            print(f"////////// compute done")
+            print(U)
+            print(f"//////////")
         return U
 
     def _inv(self, U):
